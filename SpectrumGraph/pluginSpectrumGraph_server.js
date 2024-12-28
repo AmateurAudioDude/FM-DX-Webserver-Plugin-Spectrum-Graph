@@ -789,3 +789,9 @@ function restartScan(command) {
     // Restart scan
     if (!isScanRunning) setTimeout(() => startScan(command), 20);
 }
+
+const getSpectrumData = () => {
+    return Object.freeze({ ...spectrumData });
+};
+
+module.exports = { getSpectrumData };
