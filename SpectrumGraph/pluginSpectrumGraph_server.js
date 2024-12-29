@@ -391,6 +391,7 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
                     const messageClient = JSON.stringify({
                         type: 'sigArray',
                         value: sigArray,
+                        isScanning: isScanRunning
                     });
                     extraSocket.send(messageClient);
                 } else {
@@ -759,6 +760,7 @@ function startScan(command) {
             const messageClient = JSON.stringify({
                 type: 'sigArray',
                 value: sigArray,
+                isScanning: isScanRunning
             });
             extraSocket.send(messageClient);
         } catch (error) {
