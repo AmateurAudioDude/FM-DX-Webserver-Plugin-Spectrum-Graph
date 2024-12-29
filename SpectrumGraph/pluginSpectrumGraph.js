@@ -17,7 +17,7 @@ const useButtonSpacingBetweenCanvas = true;     // Other plugins are likely to o
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.1.8a';
+const pluginVersion = '1.1.7';
 
 // const variables
 const pluginName = "Spectrum Graph";
