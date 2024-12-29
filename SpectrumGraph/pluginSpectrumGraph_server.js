@@ -261,7 +261,7 @@ async function ExtraWebSocket() {
             };
 
             extraSocket.onerror = (error) => {
-                logError(`${pluginName}: WebSocket error:`, error);
+                logError(`${pluginName} WebSocket error:`, error);
             };
 
             extraSocket.onclose = () => {
@@ -490,8 +490,8 @@ function waitForTextSocket() { // First run begins when default frequency is det
         }
 
         waitForFrequency()
-            .then(message => logInfo(`${pluginName}:`, message))
-            .catch(error => logError(`${pluginName}:`, error));
+            .then(message => logInfo(message))
+            .catch(error => logError(error));
     }
 
     function firstRun() {
