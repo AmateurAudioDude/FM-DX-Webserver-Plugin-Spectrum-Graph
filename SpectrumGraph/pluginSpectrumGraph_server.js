@@ -336,14 +336,14 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
 
             interceptedUData = interceptedUData.replaceAll(" ", ""); // Remove any spaces regardless of firmware
 
-            // Update endpoint
-            const newData = { sd: interceptedUData };
-            updateSpectrumData(newData);
-
             // Some firmware might still have a trailing comma
             if (interceptedUData && interceptedUData.endsWith(',')) {
                 interceptedUData = interceptedUData.slice(0, -1);
             }
+
+            // Update endpoint
+            const newData = { sd: interceptedUData };
+            updateSpectrumData(newData);
 
             if (antennaSwitch) {
                 // Update endpoint
