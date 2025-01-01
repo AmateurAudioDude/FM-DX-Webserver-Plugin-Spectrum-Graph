@@ -648,10 +648,12 @@ async function getCurrentAntenna() {
 
         // Hold peaks antenna localStorage
         localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
-        if (isGraphOpen) ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
-        if (typeof initTooltips === 'function') initTooltips();
-        outlinePointsSavePermission = !localStorageItem.enableHold;
-        setTimeout(drawGraph, drawGraphDelay);
+        if (isGraphOpen) {
+            ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
+            if (typeof initTooltips === 'function') initTooltips();
+            outlinePointsSavePermission = !localStorageItem.enableHold;
+            setTimeout(drawGraph, drawGraphDelay);
+        }
     } catch (error) {
         console.error(`${pluginName} error fetching current antenna:`, error);
     }
