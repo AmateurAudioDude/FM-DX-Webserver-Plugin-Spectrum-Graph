@@ -1480,6 +1480,10 @@ function drawGraph() {
         }
 
         ctx.stroke();
+
+        // Restore to not affect the rest of the graph
+        ctx.lineCap = 'butt';
+        ctx.lineJoin = 'miter';
     }
 
     graphImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
