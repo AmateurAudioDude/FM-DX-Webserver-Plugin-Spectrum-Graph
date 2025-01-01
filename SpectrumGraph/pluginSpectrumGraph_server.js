@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.1.8a by AAD
+    Spectrum Graph v1.2.0 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -336,9 +336,15 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
 
             interceptedUData = interceptedUData.replaceAll(" ", ""); // Remove any spaces regardless of firmware
 
-            // Some firmware might still have a trailing comma
-            if (interceptedUData && interceptedUData.endsWith(',')) {
+            // Remove any further erroneous data if found
+            if (interceptedUData && /Z.$/.test(interceptedUData)) { // Remove any 'Z' antenna commands
+                interceptedUData = interceptedUData.slice(0, -2);
+            }
+            if (interceptedUData && interceptedUData.endsWith(',')) { // Some firmware might still have a trailing comma
                 interceptedUData = interceptedUData.slice(0, -1);
+            }
+            if (interceptedUData) { // Remove any non-digit characters at the end
+                interceptedUData = interceptedUData.replace(/\D+$/, '');
             }
 
             // Update endpoint

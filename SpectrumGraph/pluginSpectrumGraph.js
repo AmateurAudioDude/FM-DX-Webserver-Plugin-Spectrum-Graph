@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.1.8a by AAD
+    Spectrum Graph v1.2.0 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -12,12 +12,13 @@ const borderlessTheme = true;                   // Background and text colours m
 const enableMouseClickToTune = true;            // Allow the mouse to tune inside the graph
 const enableMouseScrollWheel = true;            // Allow the mouse scroll wheel to tune inside the graph
 const decimalMarkerRoundOff = true;             // Round frequency markers to the nearest integer
+const adjustScaleToOutline = true;              // Adjust auto baseline to hold/relative or clamp outline
 const extendGraphHeight = true;                 // Disable if it causes any visual issues
 const useButtonSpacingBetweenCanvas = true;     // Other plugins are likely to override this if set to false
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.1.7';
+const pluginVersion = '1.2.0';
 
 // const variables
 const pluginName = "Spectrum Graph";
@@ -30,15 +31,20 @@ const topValue = borderlessTheme ? '12px' : '14px';
 
 // let variables
 let dataFrequencyValue;
+let graphImageData; // Used to store graph image
 let isCanvasHovered = false; // Used for mouse scoll wheel
 let isDecimalMarkerRoundOff = decimalMarkerRoundOff;
 let isGraphOpen = false;
 let isSpectrumOn = false;
-let antennaCurrent = 0;
+let currentAntenna = 0;
 let xOffset = 30;
+let outlinePoints = []; // Outline data for localStorage
+let outlinePointsSavePermission = false;
 let sigArray = [];
 let minSig; // Graph value
 let maxSig; // Graph value
+let minSigOutline; // Outline value
+let maxSigOutline; // Outline value
 let dynamicPadding = 1;
 let localStorageItem = {};
 let signalText = localStorage.getItem('signalUnit') || 'dbf';
@@ -48,12 +54,14 @@ let updateText;
 let wsSendSocket;
 
 // let variables (Scanner plugin code by Highpoint)
+let ScannerIsScanning = false;
 let ScannerMode = '';
+let ScannerModeTemp = '';
 let ScannerSensitivity = 0;
 let ScannerSpectrumLimiterValue = 0; 
-let tempScannerMode = '';
 
 // localStorage variables
+//localStorageItem.enableHold located in getCurrentAntenna()
 localStorageItem.enableSmoothing = localStorage.getItem('enableSpectrumGraphSmoothing') === 'true';                 // Smooths the graph edges
 localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphFixedVerticalGraph') === 'true';     // Fixed/dynamic vertical graph based on peak signal
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
@@ -167,11 +175,21 @@ async function setupSendSocket() {
                                 console.error('Expected array for sigArray, but received:', data.value);
                             }
                         }
+                        getCurrentAntenna();
                     }
 
                     // Scanner plugin code by Highpoint
                     if (data.type === 'Scanner') {
                         const eventData = JSON.parse(event.data);
+
+                        if (eventData.value.Scan) {
+                            if (eventData.value.Scan === 'on') {
+                                ScannerIsScanning = true;
+                            } else {
+                                ScannerIsScanning = false;
+                            }
+                            setTimeout(drawGraph, drawGraphDelay);
+                        }
 
                         if (eventData === '') {
                             const initialMessage = createMessage('request');
@@ -214,7 +232,7 @@ async function setupSendSocket() {
     }
 }
 // WebSocket and scanner button initialisation
-setTimeout(setupSendSocket, 400);
+setupSendSocket();
 
 // Function to check for updates
 async function fetchFirstLine() {
@@ -365,9 +383,11 @@ function ScanButton() {
     /*
     ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,        ButtonPosition)
     */
-    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',            '56');
-    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',   '96');
-    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',         '136');
+    //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
+    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
+    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96');
+    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136');
+    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176');
     if (typeof initTooltips === 'function') initTooltips();
     if (updateText) insertUpdateText(updateText);
 }
@@ -557,11 +577,13 @@ async function initializeGraph() {
         const data = await response.json();
 
         // Switch to data of current antenna
-        if (data.ad && data.sd && (data.sd0 || data.sd1)) data.sd = data[`sd${data.ad}`];
+        if (data.ad && data.sd && (data.sd0 || data.sd1)) {
+            data.sd = data[`sd${data.ad}`];
+            currentAntenna = data.ad;
+        }
 
         // Check if `sd` exists
         if (data.sd && data.sd.trim() !== '') {
-            console.log(`${pluginName} data found for antenna ${data.ad} on page load.`);
             if (data.sd.length > 0) {
 
                 // Remove trailing comma and space in TEF radio firmware
@@ -592,11 +614,48 @@ async function initializeGraph() {
     } catch (error) {
         console.error(`${pluginName} error during graph initialisation:`, error);
     }
+    getCurrentAntenna();
 }
 
 // Call function on page load
 window.addEventListener('load', initializeGraph);
 
+// Fetch current antenna
+async function getCurrentAntenna() {
+    try {
+        // Fetch the initial data from endpoint
+        const basePath = window.location.pathname.replace(/\/?$/, '/');
+        const apiPath = `${basePath}spectrum-graph-plugin`.replace(/\/+/g, '/');
+
+        const response = await fetch(apiPath, {
+            method: 'GET',
+            headers: {
+                'X-Plugin-Name': 'SpectrumGraphPlugin'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`${pluginName} failed to fetch data: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Data of current antenna
+        if (data.ad) {
+            currentAntenna = data.ad;
+            console.log(`${pluginName} data found for antenna ${data.ad}.`);
+        }
+
+        // Hold peaks antenna localStorage
+        localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
+        if (isGraphOpen) ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
+        if (typeof initTooltips === 'function') initTooltips();
+        outlinePointsSavePermission = !localStorageItem.enableHold;
+        setTimeout(drawGraph, drawGraphDelay);
+    } catch (error) {
+        console.error(`${pluginName} error fetching current antenna:`, error);
+    }
+}
 
 // Display signal canvas (default)
 function displaySignalCanvas() {
@@ -608,6 +667,10 @@ function displaySignalCanvas() {
     const sdrCanvasScanButton = document.getElementById('spectrum-scan-button');
     if (sdrCanvasScanButton) {
         sdrCanvasScanButton.style.display = 'none';
+    }
+    const sdrCanvasHoldButton = document.getElementById('hold-button');
+    if (sdrCanvasHoldButton) {
+        sdrCanvasHoldButton.style.display = 'none';
     }
     const sdrCanvasSmoothingButton = document.getElementById('smoothing-on-off-button');
     if (sdrCanvasSmoothingButton) {
@@ -676,7 +739,6 @@ function displaySdrGraph() {
     ScanButton();
 }
 
-
 // Adjust dataCanvas height based on window height
 function adjustSdrGraphCanvasHeight() {
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches) {
@@ -690,7 +752,6 @@ function adjustSdrGraphCanvasHeight() {
         drawGraph();
     }
 }
-
 
 // Toggle spectrum state and update UI accordingly
 function toggleSpectrum() {
@@ -793,11 +854,11 @@ function initializeCanvasInteractions() {
     // Scaling factors and bounds
     let xScale, minFreq, freqRange, yScale;
 
+    // Function to draw circle and tooltips
     function updateTooltip(event) {
-        // Ready to draw circle
         const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawGraph();
+
+        if (graphImageData) ctx.putImageData(graphImageData, 0, 0);
 
         const rect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
@@ -920,8 +981,8 @@ function initializeCanvasInteractions() {
     canvas.addEventListener('mouseleave', () => {
         tooltip.style.visibility = 'hidden';
         setTimeout(() => {
-            drawGraph();
-        }, 800);
+            setTimeout(drawGraph, drawGraphDelay);
+        }, 400);
     });
     canvas.addEventListener('wheel', handleWheelScroll);
     canvas.addEventListener('click', handleClick);
@@ -989,8 +1050,6 @@ $(window).on('load', function() {
 
 // Draw graph
 function drawGraph() {
-    dataFrequencyValue = dataFrequencyElement.textContent;
-
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
     const height = canvas.height;
@@ -1004,9 +1063,67 @@ function drawGraph() {
         return;
     }
 
+    dataFrequencyValue = dataFrequencyElement.textContent;
+
+    let savedOutline;
+
+    if (!localStorageItem.enableHold) outlinePointsSavePermission = true;
+
+    // Store outline data
+    if (localStorageItem.enableHold) {
+        outlinePoints = [];
+
+        for (let i = 0; i < sigArray.length; i++) {
+            const sig = sigArray[i];
+            outlinePoints.push({ freq: sig.freq, sig: sig.sig });
+        }
+
+        // Save current graph outline
+        if (outlinePointsSavePermission) {
+            if (!Array.isArray(outlinePoints)) {
+                console.error(`${pluginName}: Invalid outline points. Must be an array.`);
+                return;
+            }
+
+            try {
+                localStorage.setItem(`enableSpectrumGraphOutline${currentAntenna}`, JSON.stringify(outlinePoints));
+                console.log(`${pluginName}: Graph outline saved for antenna ${currentAntenna}.`);
+            } catch (error) {
+                console.error(`${pluginName} failed to save graph outline:`, error);
+            }
+
+            outlinePointsSavePermission = false;
+        }
+
+        // Load saved graph outline
+        const savedData = localStorage.getItem(`enableSpectrumGraphOutline${currentAntenna}`);
+        if (!savedData) {
+            //console.log(`${pluginName}: No saved graph outline found.`);
+            return;
+        }
+
+        try {
+            savedOutline = JSON.parse(savedData);
+        } catch (error) {
+            console.error(`${pluginName}: Failed to parse saved graph outline:`, error);
+            return;
+        }
+
+        if (!Array.isArray(savedOutline) || savedOutline.length === 0) {
+            console.log(`${pluginName}: Saved graph outline is empty or invalid.`);
+            return;
+        }
+
+        if (adjustScaleToOutline) {
+            minSigOutline = Math.max(Math.min(...savedOutline.map(p => p.sig)) - dynamicPadding, -1);
+            maxSigOutline = Math.min(Math.max(...savedOutline.map(p => p.sig)) + dynamicPadding, canvas.height);
+        }
+    }
+
     // Determine min signal value dynamically
     if (localStorageItem.isAutoBaseline) {
         minSig = Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -1); // Dynamic vertical graph
+        if (adjustScaleToOutline && localStorageItem.enableHold && (minSigOutline < minSig)) minSig = minSigOutline;
     } else {
         minSig = 0; // Fixed min vertical graph
     }
@@ -1014,6 +1131,7 @@ function drawGraph() {
     // Determine max signal value dynamically
     if (!localStorageItem.fixedVerticalGraph) {
         maxSig = (Math.max(...sigArray.map(d => d.sig)) - minSig) + dynamicPadding || 0.01; // Dynamic vertical graph
+        if (adjustScaleToOutline && localStorageItem.enableHold && (maxSigOutline > maxSig)) maxSig = (maxSigOutline - minSig);
     } else {
         maxSig = 80 - minSig; // Fixed max vertical graph
     }
@@ -1110,7 +1228,7 @@ function drawGraph() {
         sigLabelStep = maxSig / 4;
     }
     let labels = [];
-    for (let sig = 0; sig <= maxSig; sig += sigLabelStep) {
+    for (let sig = 0; sig <= (maxSig + 0.01); sig += sigLabelStep) { // IEEE 754 workaround for maxSig
         const y = height - 20.5 - sig * yScale;
         if (signalText === 'dbm') {
             // dBm spacing
@@ -1175,10 +1293,10 @@ function drawGraph() {
     const gradient = ctx.createLinearGradient(0, height - 20, 0, 0);
 
     // Add colour stops
-    gradient.addColorStop(0, "#0030E0");
-    gradient.addColorStop(0.25, "#18BB56");
-    gradient.addColorStop(0.5, "#8CD500");
-    gradient.addColorStop(0.75, "#F04100");
+    gradient.addColorStop(0, "#0030E0");        // Blue
+    gradient.addColorStop(0.25, "#10C838");     // Green
+    gradient.addColorStop(0.5, "#C0D000");      // Yellow
+    gradient.addColorStop(0.75, "#FF0040");     // Red
 
     // Set fill style and draw a rectangle
     ctx.fillStyle = gradient;
@@ -1191,12 +1309,12 @@ function drawGraph() {
     // Draw graph line
     sigArray.forEach((point, index) => {
         if (point.sig < 0) point.sig = 0;
-        const x = (xOffset + (point.freq - minFreq) * xScale);
-        const y = (height - 20 - (point.sig - minSig) * yScale);
+        const x = xOffset + (point.freq - minFreq) * xScale;
+        const y = height - (point.sig - minSig) * yScale;
         if (index === 0) {
-            ctx.lineTo(x, (y - 1));
+            ctx.lineTo(x, y - 20);
         } else {
-            ctx.lineTo(x, (y - 1));
+            ctx.lineTo(x, y - 20);
         }
     });
 
@@ -1236,52 +1354,56 @@ function drawGraph() {
     }
 
     // Scanner plugin code by Highpoint
-    if (ScannerSpectrumLimiterValue !== 100 && ScannerSpectrumLimiterValue !== 0 && (ScannerMode === 'spectrum' || ScannerMode === 'spectrumBL' || ScannerMode === 'difference' || ScannerMode === 'differenceBL')) {
-        if (tempScannerMode !== ScannerMode) {
-            tempScannerMode = ScannerMode;
-            console.log(`${pluginName}: Scanner plugin mode changed to '${ScannerMode}'`);
+    if (ScannerIsScanning) {
+        if (ScannerSpectrumLimiterValue !== 100 && ScannerSpectrumLimiterValue !== 0 && (ScannerMode === 'spectrum' || ScannerMode === 'spectrumBL' || ScannerMode === 'difference' || ScannerMode === 'differenceBL')) {
+            if (ScannerModeTemp !== ScannerMode) {
+                ScannerModeTemp = ScannerMode;
+                console.log(`${pluginName}: Scanner plugin mode changed to '${ScannerMode}'`);
+            }
+            const yPositionLimiterValue = height - 20 - ((ScannerSpectrumLimiterValue - minSig) * yScale);
+
+            // Draw a semi-transparent red area to the top
+            ctx.fillStyle = 'rgba(226, 61, 1, 0.2)';
+            ctx.fillRect(xOffset, 8, width - xOffset, yPositionLimiterValue - 8);
+
+            // Draw a contrasting red line
+            ctx.strokeStyle = 'rgba(226, 61, 1, 0.8)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(xOffset, yPositionLimiterValue);
+            ctx.lineTo(width, yPositionLimiterValue);
+            ctx.stroke();
+
+            // Write the SpectrumLimiterValue below the line
+            ctx.fillStyle = 'rgba(226, 61, 1, 1.0)';
+            ctx.font = '12px Arial, Titillium Web, Helvetica';
+            ctx.textAlign = 'left';
+            let ScannerSpectrumLimiterValueOffset = 0;
+            if (ScannerSpectrumLimiterValue && ScannerSensitivity && ScannerSpectrumLimiterValue - ScannerSensitivity > 5 && ScannerSpectrumLimiterValue - ScannerSensitivity < 20) ScannerSpectrumLimiterValueOffset = 50;
+            ctx.fillText(`${Math.round(Number(ScannerSpectrumLimiterValue.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + (5 + ScannerSpectrumLimiterValueOffset), yPositionLimiterValue + 15);
         }
-        const yPositionLimiterValue = height - 20 - ((ScannerSpectrumLimiterValue - minSig) * yScale);
 
-        // Draw a semi-transparent red area to the top
-        ctx.fillStyle = 'rgba(226, 61, 1, 0.2)';
-        ctx.fillRect(xOffset, 8, width - xOffset, yPositionLimiterValue - 8);
+        if (ScannerSensitivity !== 0 && ScannerSensitivity !== 100 && ScannerMode !== '') {
+            const yPositionScannerSensitivityValue = height - 20 - ((ScannerSensitivity - minSig) * yScale);
 
-        // Draw a contrasting red line
-        ctx.strokeStyle = 'rgba(226, 61, 1, 0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(xOffset, yPositionLimiterValue);
-        ctx.lineTo(width, yPositionLimiterValue);
-        ctx.stroke();
+            // Draw a semi-transparent blue area to the bottom
+            ctx.fillStyle = 'rgba(4, 56, 215, 0.2)';
+            ctx.fillRect(xOffset, yPositionScannerSensitivityValue, width - xOffset, height - 20 - yPositionScannerSensitivityValue);
 
-        // Write the SpectrumLimiterValue below the line
-        ctx.fillStyle = 'rgba(226, 61, 1, 1.0)';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(`${Math.round(Number(ScannerSpectrumLimiterValue.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + 5, yPositionLimiterValue + 15);
-    }
+            // Draw a contrasting blue line
+            ctx.strokeStyle = 'rgba(4, 56, 215, 0.8)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(xOffset, yPositionScannerSensitivityValue);
+            ctx.lineTo(width, yPositionScannerSensitivityValue);
+            ctx.stroke();
 
-    if (ScannerSensitivity !== 0 && ScannerSensitivity !== 100 && ScannerMode !== '') {
-        const yPositionScannerSensitivityValue = height - 20 - ((ScannerSensitivity - minSig) * yScale);
-
-        // Draw a semi-transparent blue area to the bottom
-        ctx.fillStyle = 'rgba(4, 56, 215, 0.2)';
-        ctx.fillRect(xOffset, yPositionScannerSensitivityValue, width - xOffset, height - 20 - yPositionScannerSensitivityValue);
-
-        // Draw a contrasting blue line
-        ctx.strokeStyle = 'rgba(4, 56, 215, 0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(xOffset, yPositionScannerSensitivityValue);
-        ctx.lineTo(width, yPositionScannerSensitivityValue);
-        ctx.stroke();
-
-        // Write the Sensitivity value above the line
-        ctx.fillStyle = 'rgba(4, 56, 215, 1.0)';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(`${Math.round(Number(ScannerSensitivity.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + 5, yPositionScannerSensitivityValue - 5);
+            // Write the Sensitivity value above the line
+            ctx.fillStyle = 'rgba(4, 56, 215, 1.0)';
+            ctx.font = '12px Arial, Titillium Web, Helvetica';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${Math.round(Number(ScannerSensitivity.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + 5, yPositionScannerSensitivityValue - 5);
+        }
     } // **
 
     // Draw graph line
@@ -1326,6 +1448,41 @@ function drawGraph() {
     ctx.moveTo((xOffset - 0.5), 8.5); // Y-axis
     ctx.lineTo((xOffset - 0.5), height - 19.5);
     ctx.stroke();
+
+    // Draw saved graph outline
+    if (localStorageItem.enableHold) {
+        // Outline style
+        ctx.strokeStyle = 'rgb(240, 240, 240)';
+        ctx.lineWidth = 1.5;
+
+        ctx.beginPath();
+
+        for (let i = 0; i < savedOutline.length; i++) {
+            const point = savedOutline[i];
+
+            const x = Math.round(xOffset + (point.freq - minFreq) * xScale);
+            let y = Math.round(canvas.height - (point.sig - minSig) * yScale);
+
+            // Clamp y value if it's below the graph
+            if (!adjustScaleToOutline) y = Math.max(0, Math.min(canvas.height, y));
+
+            if (i === 0) {
+                ctx.moveTo(x, y - 20);
+            } else {
+                ctx.lineTo(x, y - 20);
+            }
+        }
+
+        if (localStorageItem.enableSmoothing) {
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = 1.5; // Smoothing
+        }
+
+        ctx.stroke();
+    }
+
+    graphImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('mousedown', e => (e.button === 1) && e.preventDefault());
