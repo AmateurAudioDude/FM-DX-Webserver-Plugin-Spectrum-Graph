@@ -12,7 +12,7 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 * Login to Adminstrator Panel and enable plugin
 * Restart FM-DX Webserver again if required
 * Server-side configuration options stored in `/plugins_configs/SpectrumGraph.json`
-* Client-side configuration options located in `SpectrumGraph.js`
+* Client-side configuration options located in `pluginSpectrumGraph.js`
 
 > [!IMPORTANT]
 > For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.11.11 beta** or newer firmware, available from the FMDX.org Discord server, or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32).
