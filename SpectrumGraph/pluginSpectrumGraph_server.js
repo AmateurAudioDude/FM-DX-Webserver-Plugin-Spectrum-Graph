@@ -78,18 +78,18 @@ let rescanDelay = 3; // seconds
 let tuningRange = 0; // MHz
 let tuningStepSize = 100; // kHz
 let tuningBandwidth = 56; // kHz
-let showIncompleteData = false; // Display incomplete data
+let warnIncompleteData = false; // Warn about incomplete data
 
 const defaultConfig = {
     rescanDelay: 3,
     tuningRange: 0,
     tuningStepSize: 100,
     tuningBandwidth: 56,
-    showIncompleteData: false
+    warnIncompleteData: false
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'showIncompleteData'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'warnIncompleteData'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -130,7 +130,7 @@ function loadConfigFile(isReloaded) {
             tuningRange = !isNaN(Number(config.tuningRange)) ? Number(config.tuningRange) : defaultConfig.tuningRange;
             tuningStepSize = !isNaN(Number(config.tuningStepSize)) ? Number(config.tuningStepSize) : defaultConfig.tuningStepSize;
             tuningBandwidth = !isNaN(Number(config.tuningBandwidth)) ? Number(config.tuningBandwidth) : defaultConfig.tuningBandwidth;
-            showIncompleteData = typeof config.showIncompleteData === 'boolean' ? config.showIncompleteData : defaultConfig.showIncompleteData;
+            warnIncompleteData = typeof config.warnIncompleteData === 'boolean' ? config.warnIncompleteData : defaultConfig.warnIncompleteData;
 
             // Save the updated config if there were any modifications
             if (configModified) {
@@ -342,6 +342,7 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
             }
             if (interceptedUData && interceptedUData.endsWith(',')) { // Some firmware might still have a trailing comma
                 interceptedUData = interceptedUData.slice(0, -1);
+                if (warnIncompleteData) logWarn(`${pluginName}: Spectrum scan appears incomplete.`);
             }
             if (interceptedUData) { // Remove any non-digit characters at the end
                 interceptedUData = interceptedUData.replace(/\D+$/, '');
@@ -375,15 +376,10 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
             if (uValueNew !== null) {
                 let uValue = uValueNew;
 
-                // Possibly interrupted
+                // Possibly interrupted, but should never execute, as trailing commas should have already been removed
                 if (uValue && uValue.endsWith(',')) {
                     isScanHalted(true);
-                    // uValue.slice or null
-                    if (showIncompleteData) {
-                        uValue = uValue.slice(0, -1);
-                    } else {
-                        uValue = null;
-                    }
+                    uValue = null;
                     setTimeout(() => {
                         // Update endpoint
                         const newData = { [`sd${antennaCurrent}`]: uValue }; // uValue or null
@@ -737,15 +733,10 @@ function startScan(command) {
             const scanStartTime = Date.now(); // Start of entire scan process
             let uValue = await waitForUValue();
 
-            // Possibly interrupted
+            // Possibly interrupted, but should never execute, as trailing commas should have already been removed
             if (uValue && uValue.endsWith(',')) {
                 isScanHalted(true);
-                // uValue.slice or null
-                if (showIncompleteData) {
-                    uValue = uValue.slice(0, -1);
-                } else {
-                    uValue = null;
-                }
+                uValue = null;
                 setTimeout(() => {
                     // Update endpoint
                     const newData = { sd: uValue }; // uValue or null
