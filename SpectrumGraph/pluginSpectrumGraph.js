@@ -182,20 +182,20 @@ async function setupSendSocket() {
                     if (data.type === 'Scanner') {
                         const eventData = JSON.parse(event.data);
 
-                        if (eventData.value.Scan) {
+                        if (eventData === '') {
+                            const initialMessage = createMessage('request');
+                            if (wsSendSocket && wsSendSocket.readyState === WebSocket.OPEN) {
+                                wsSendSocket.send(JSON.stringify(initialMessage));
+                            }
+                        }
+
+                        if (eventData.value.Scan !== undefined && eventData.value.Scan !== null) {
                             if (eventData.value.Scan === 'on') {
                                 ScannerIsScanning = true;
                             } else {
                                 ScannerIsScanning = false;
                             }
                             setTimeout(drawGraph, drawGraphDelay);
-                        }
-
-                        if (eventData === '') {
-                            const initialMessage = createMessage('request');
-                            if (wsSendSocket && wsSendSocket.readyState === WebSocket.OPEN) {
-                                wsSendSocket.send(JSON.stringify(initialMessage));
-                            }
                         }
 
                         if (eventData.value.Sensitivity !== undefined && eventData.value.Sensitivity !== null) {
