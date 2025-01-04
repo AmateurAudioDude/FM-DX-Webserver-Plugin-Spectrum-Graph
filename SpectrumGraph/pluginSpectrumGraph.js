@@ -32,7 +32,7 @@ const topValue = borderlessTheme ? '12px' : '14px';
 // let variables
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
-let isCanvasHovered = false; // Used for mouse scoll wheel
+let isCanvasHovered = false; // Used for mouse scroll wheel
 let isDecimalMarkerRoundOff = decimalMarkerRoundOff;
 let isGraphOpen = false;
 let isSpectrumOn = false;
