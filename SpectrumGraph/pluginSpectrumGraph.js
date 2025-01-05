@@ -23,6 +23,7 @@ const pluginVersion = '1.2.0';
 // const variables
 const pluginName = "Spectrum Graph";
 const debug = false;
+const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signal calibration
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
 const canvasHeightSmall = extendGraphHeight ? 132 : 120;
@@ -163,6 +164,18 @@ async function setupSendSocket() {
                         console.log(`${pluginName} received sigArray.`);
                         sigArray = data.value;
                         if (sigArray.length > 0) {
+                            // Signal calibration
+                            if (CAL90000 || CAL95500 || CAL100500 || CAL105500) {
+                                sigArray.forEach(item => {
+                                    const _f = parseFloat(item.freq);
+                                    let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
+                                    let sig = parseFloat(item.sig);
+                                    if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
+                                    item.sig = sig.toFixed(2);
+                                });
+                                console.log(`${pluginName} calibrated sigArray.`);
+                            }
+
                             setTimeout(drawGraph, drawGraphDelay);
                         }
                         if (debug) {
@@ -593,7 +606,16 @@ async function initializeGraph() {
 
                 // Split the response into pairs and process each one (as it normally does server-side)
                 sigArray = data.sd.split(',').map(pair => {
-                    const [freq, sig] = pair.split('=');
+                    let [freq, sig] = pair.split('=');
+                    // Signal calibration
+                    if (CAL90000 || CAL95500 || CAL100500 || CAL105500) {
+                        const _f = parseFloat(freq) / 1000;
+                        let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
+                        sig = parseFloat(sig);
+                        if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
+                        console.log(`${pluginName} calibrated sigArray.`);
+                    }
+
                     return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
                 });
             }
