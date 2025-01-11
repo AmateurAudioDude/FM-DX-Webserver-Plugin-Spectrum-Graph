@@ -208,7 +208,7 @@ async function setupSendSocket() {
                             } else {
                                 ScannerIsScanning = false;
                             }
-                            setTimeout(drawGraph, drawGraphDelay);
+                            if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
                         }
 
                         if (eventData.value.Sensitivity !== undefined && eventData.value.Sensitivity !== null) {
