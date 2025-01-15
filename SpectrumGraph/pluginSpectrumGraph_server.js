@@ -26,6 +26,7 @@ const externalWsUrl = `ws://127.0.0.1:${webserverPort}`;
 
 // let variables
 let extraSocket, textSocket, textSocketLost, messageParsed, messageParsedTimeout, startTime, tuningLowerLimitScan, tuningUpperLimitScan, tuningLowerLimitOffset, tuningUpperLimitOffset, debounceTimer;
+let fmLowerLimit = 86;
 let ipAddress = externalWsUrl;
 let currentFrequency = 0;
 let initialDelay = 0;
@@ -659,8 +660,8 @@ function startScan(command) {
         }
 
         // Limit scan to either OIRT band (64-86 MHz) or FM band (86-108 MHz)
-        if ((currentFrequency * 1000) < 86000 && tuningUpperLimitScan > 86000) tuningUpperLimitScan = 86000;
-        if ((currentFrequency * 1000) >= 86000 && tuningLowerLimitScan < 86000) tuningLowerLimitScan = 86000;
+        if ((currentFrequency * 1000) < (fmLowerLimit * 1000) && tuningUpperLimitScan > (fmLowerLimit * 1000)) tuningUpperLimitScan = (fmLowerLimit * 1000);
+        if ((currentFrequency * 1000) >= (fmLowerLimit * 1000) && tuningLowerLimitScan < (fmLowerLimit * 1000)) tuningLowerLimitScan = (fmLowerLimit * 1000);
 
         // The magic happens here
         if (currentFrequency >= 64) {
