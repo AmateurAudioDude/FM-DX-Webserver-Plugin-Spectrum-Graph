@@ -176,7 +176,7 @@ async function setupSendSocket() {
                                 console.log(`${pluginName} calibrated sigArray.`);
                             }
 
-                            setTimeout(drawGraph, drawGraphDelay);
+                            if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
                         }
                         if (debug) {
                             if (Array.isArray(data.value)) {
@@ -332,6 +332,7 @@ function ScanButton() {
     let canSendMessage = true;
     if (isTuningAllowed) {
         spectrumButton.addEventListener('click', () => {
+            initializeGraph();
             const message = JSON.stringify({
                 type: 'spectrum-graph',
                 value: {

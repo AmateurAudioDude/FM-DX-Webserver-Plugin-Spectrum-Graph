@@ -65,7 +65,7 @@ function customRouter() {
         }
     });
 
-    logInfo(`${pluginName}: Custom router added to endpoints router.`);
+    if (isFirstRun && ipAddress) logInfo(`${pluginName}: Custom router added to endpoints router (${ipAddress}).`);
 }
 
 // Update endpoint
@@ -273,6 +273,7 @@ async function ExtraWebSocket() {
             extraSocket.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
+                    ipAddress = externalWsUrl;
                     //logInfo(JSON.stringify(message));
 
                     // Ignore messages that aren't for spectrum-graph
