@@ -25,7 +25,7 @@ const debug = false;
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signal calibration
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
-const canvasHeightSmall = 136;
+const canvasHeightSmall = 120;
 const canvasHeightLarge = 176;
 const canvasFullHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
 const topValue = BORDERLESS_THEME ? '12px' : '14px';
@@ -38,6 +38,8 @@ let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
 let isGraphOpen = false;
 let isSpectrumOn = false;
 let currentAntenna = 0;
+let canvasFullWidthOffset = 0;
+let hideContainerRotator = false;
 let xOffset = 30;
 let outlinePoints = []; // Outline data for localStorage
 let outlinePointsSavePermission = false;
@@ -809,14 +811,12 @@ function displaySignalCanvas() {
     }
     const signalCanvas = document.getElementById('signal-canvas');
     if (signalCanvas) {
-
-        //signalCanvas.style.display = 'block';
         setTimeout(() => {
             signalCanvas.style.display = 'block';
             // Fade in effect
             signalCanvas.style.visibility = 'visible';
             signalCanvas.style.opacity = 1;
-        }, 10); // 400 when it's below
+        }, 20); // 400 when it's below
     }
 }
 
@@ -863,7 +863,22 @@ function displaySdrGraph() {
     }
     const ContainerRotator = document.getElementById('containerRotator');
     if (ContainerRotator) {
-        ContainerRotator.style.display = 'none';
+        if (hideContainerRotator) {
+            ContainerRotator.style.display = 'none';
+            canvasFullWidthOffset = 0;
+        } else {
+            canvasFullWidthOffset = 204;
+            const style = document.createElement('style');
+            style.textContent = `
+                #sdr-graph {
+                    width: 82%;
+                    margin-left: 200px;
+                    margin-top: 0px;
+                }
+            `;
+            document.head.appendChild(style);
+            resizeCanvas();
+        }
     }
     const ContainerAntenna = document.getElementById('Antenna');
     if (ContainerAntenna) {
@@ -1045,12 +1060,12 @@ function initializeCanvasInteractions() {
             ctx.stroke();
 
             // Tooltip positioning
-            let tooltipX = (xOffset + 10) + (closestPoint.freq - minFreq) * xScale;
+            let tooltipX = ((xOffset + 10) + (closestPoint.freq - minFreq) * xScale) + canvasFullWidthOffset;
             const tooltipY = canvas.height - 20 - signalValue * yScale;
             const tooltipWidth = tooltip.offsetWidth;
 
-            if (tooltipX + tooltipWidth > canvas.width) {
-                tooltipX = mouseX - tooltip.offsetWidth - 10;
+            if (tooltipX + tooltipWidth > (canvas.width + canvasFullWidthOffset)) {
+                tooltipX = (mouseX - tooltip.offsetWidth - 10) + canvasFullWidthOffset;
             }
 
             tooltip.style.left = `${tooltipX}px`;
@@ -1141,7 +1156,7 @@ canvas.id = 'sdr-graph';
 canvas.position = 'relative';
 
 function resizeCanvas() {
-    let fixedWidth = 1170;
+    let fixedWidth = 1170 - canvasFullWidthOffset;
     let paddingWidth = 10;
     if (window.innerWidth < fixedWidth + paddingWidth) canvas.width = window.innerWidth - paddingWidth; else canvas.width = fixedWidth;
     adjustSdrGraphCanvasHeight();
