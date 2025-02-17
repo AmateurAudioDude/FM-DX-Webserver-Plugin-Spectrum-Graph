@@ -26,7 +26,7 @@ const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signa
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
 const canvasHeightSmall = 136;
-const canvasHeightLarge = 188;
+const canvasHeightLarge = 176;
 const canvasFullHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
 const topValue = BORDERLESS_THEME ? '12px' : '14px';
 
