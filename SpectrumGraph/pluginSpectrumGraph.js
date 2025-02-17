@@ -13,7 +13,7 @@ const ENABLE_MOUSE_CLICK_TO_TUNE = true;        // Allow the mouse to tune insid
 const ENABLE_MOUSE_SCROLL_WHEEL = true;         // Allow the mouse scroll wheel to tune inside the graph
 const DECIMAL_MARKER_ROUND_OFF = true;          // Round frequency markers to the nearest integer
 const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/relative or clamp outline
-const BACKGROUND_BLUR_PIXELS = 5;               // Canvas backround blur in pixels
+const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
