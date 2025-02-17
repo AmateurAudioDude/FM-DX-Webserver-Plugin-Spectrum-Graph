@@ -975,7 +975,7 @@ function initializeCanvasInteractions() {
     tooltip.style.background = 'var(--color-3-transparent)';
     tooltip.style.border = '1px solid var(--color-3)';
     tooltip.style.color = 'var(--color-main-2)';
-    tooltip.style.padding = '5px';
+    tooltip.style.padding = '4px 8px 4px 8px';
     tooltip.style.borderRadius = '8px';
     tooltip.style.fontSize = '12px';
     tooltip.style.pointerEvents = 'none';
