@@ -816,7 +816,7 @@ function displaySignalCanvas() {
             // Fade in effect
             signalCanvas.style.visibility = 'visible';
             signalCanvas.style.opacity = 1;
-        }, 20); // 400 when it's below
+        }, 10); // 400 if it's below
     }
 }
 
