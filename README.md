@@ -34,6 +34,12 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 ### Known issues
 * The plugin currently doesn't function if tuning is locked.
 
+v1.2.1
+------
+* Fixed compatibility issues with FM-DX Webserver v1.3.5
+* Added visual animation effects
+* Minor fixes
+
 v1.2.0
 ------
 * Added 'Hold' button
