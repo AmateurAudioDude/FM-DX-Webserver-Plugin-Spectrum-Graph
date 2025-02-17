@@ -713,35 +713,28 @@ window.addEventListener('load', initializeGraph);
 // Fetch current antenna
 async function getCurrentAntenna() {
     try {
-        // Fetch the initial data from endpoint
+        // Fetch the initial data from api
         const basePath = window.location.pathname.replace(/\/?$/, '/');
-        const apiPath = `${basePath}spectrum-graph-plugin`.replace(/\/+/g, '/');
+        const apiPath = `${basePath}api`.replace(/\/+/g, '/');
+        fetch(apiPath)
+            .then(response => response.json())
+            .then(data => {
+                // Data of current antenna
+                if (data.ant) {
+                    currentAntenna = data.ant;
+                    console.log(`${pluginName} data found for antenna ${data.ant}.`);
+                }
 
-        const response = await fetch(apiPath, {
-            method: 'GET',
-            headers: {
-                'X-Plugin-Name': 'SpectrumGraphPlugin'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`${pluginName} failed to fetch data: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        // Data of current antenna
-        if (data.ad) {
-            currentAntenna = data.ad;
-            console.log(`${pluginName} data found for antenna ${data.ad}.`);
-        }
-
-        // Hold peaks antenna localStorage
-        localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
-        if (isGraphOpen) ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
-        if (typeof initTooltips === 'function') initTooltips();
-        outlinePointsSavePermission = !localStorageItem.enableHold;
-        if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
+                // Hold peaks antenna localStorage
+                localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
+                if (isGraphOpen) ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
+                if (typeof initTooltips === 'function') initTooltips();
+                outlinePointsSavePermission = !localStorageItem.enableHold;
+                if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
+            })
+            .catch(error => {
+                console.error('Error fetching api data:', error);
+            });
     } catch (error) {
         console.error(`${pluginName} error fetching current antenna:`, error);
     }
