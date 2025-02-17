@@ -22,8 +22,9 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 - **`rescanDelay`**: Number of seconds elapsed since the previous scan before a new scan can be initiated.   
 - **`tuningRange`**: Side frequencies to scan, in MHz. A value of 0 scans the entire FM/OIRT band.   
 - **`tuningStepSize`**: Tuning step size, in kHz. Recommended values are either 100 or 50.   
-- **`tuningBandwidth`**: Supported bandwidth values are 0, 56, 64, 72, 84, 97, 114, 133, 151, 168, 184, 200, 217, 236, 254, 287, and 311.
+- **`tuningBandwidth`**: Supported bandwidth values are 0, 56, 64, 72, 84, 97, 114, 133, 151, 168, 184, 200, 217, 236, 254, 287, and 311.   
 - **`warnIncompleteData`**: Enable to display console warnings about incomplete/interrupted scans. Note: Some firmware outputs data that always appears to be incomplete.
+- **`logLocalCommands`**: Disable to hide commands shown in console that have been sent locally, such as from another plugin.   
 
 > [!TIP]
 > The granular control by **`tuningStepSize`** allows the graph's step size to be adjusted from 100 kHz to 50 kHz, enabling more precise RF signal analysis. This will, however, increase the time it takes to perform a scan.
