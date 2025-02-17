@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.0 by AAD
+    Spectrum Graph v1.2.1 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -7,18 +7,17 @@
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const checkUpdates = true;                      // Checks online if a new version is available
-const borderlessTheme = true;                   // Background and text colours match FM-DX Webserver theme
-const enableMouseClickToTune = true;            // Allow the mouse to tune inside the graph
-const enableMouseScrollWheel = true;            // Allow the mouse scroll wheel to tune inside the graph
-const decimalMarkerRoundOff = true;             // Round frequency markers to the nearest integer
-const adjustScaleToOutline = true;              // Adjust auto baseline to hold/relative or clamp outline
-const extendGraphHeight = true;                 // Disable if it causes any visual issues
-const useButtonSpacingBetweenCanvas = true;     // Other plugins are likely to override this if set to false
+const CHECK_FOR_UPDATES = true;                 // Checks online if a new version is available
+const BORDERLESS_THEME = true;                  // Background and text colours match FM-DX Webserver theme
+const ENABLE_MOUSE_CLICK_TO_TUNE = true;        // Allow the mouse to tune inside the graph
+const ENABLE_MOUSE_SCROLL_WHEEL = true;         // Allow the mouse scroll wheel to tune inside the graph
+const DECIMAL_MARKER_ROUND_OFF = true;          // Round frequency markers to the nearest integer
+const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/relative or clamp outline
+const BACKGROUND_BLUR_PIXELS = 5;               // Canvas backround blur in pixels
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.0';
+const pluginVersion = '1.2.1';
 
 // const variables
 const pluginName = "Spectrum Graph";
@@ -26,15 +25,16 @@ const debug = false;
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signal calibration
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
-const canvasHeightSmall = extendGraphHeight ? 132 : 120;
-const canvasHeightLarge = extendGraphHeight ? 188 : 176;
-const topValue = borderlessTheme ? '12px' : '14px';
+const canvasHeightSmall = 136;
+const canvasHeightLarge = 188;
+const canvasFullHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
+const topValue = BORDERLESS_THEME ? '12px' : '14px';
 
 // let variables
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isCanvasHovered = false; // Used for mouse scroll wheel
-let isDecimalMarkerRoundOff = decimalMarkerRoundOff;
+let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
 let isGraphOpen = false;
 let isSpectrumOn = false;
 let currentAntenna = 0;
@@ -68,72 +68,132 @@ localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphF
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
 
 // Create Spectrum Graph button
-const SPECTRUM_BUTTON_NAME = 'SPECTRUM';
-const aSpectrumCss = `
-#spectrum-graph-button {
-border-radius: 0px;
-width: 100px;
-height: 22px;
-position: relative;
-margin-top: 16px;
-margin-left: 5px;
-right: 0px;
+function createButton(buttonId) {
+    (function waitForFunction() {
+        const maxWaitTime = 10000;
+        let functionFound = false;
+
+        const observer = new MutationObserver((mutationsList, observer) => {
+            if (typeof addIconToPluginPanel === 'function') {
+                observer.disconnect();
+                addIconToPluginPanel(buttonId, "Spectrum", "solid", "chart-area", "Spectrum Graph");
+                functionFound = true;
+
+                const buttonObserver = new MutationObserver(() => {
+                    const $pluginButton = $(`#${buttonId}`);
+                    if ($pluginButton.length > 0) {
+                        setTimeout(() => {
+                            $pluginButton.on('click', function() {
+                                // Code to execute on click
+                                toggleSpectrum();
+                            });
+                        }, 40);
+                        buttonObserver.disconnect(); // Stop observing once button is found
+                    }
+                });
+
+                buttonObserver.observe(document.body, { childList: true, subtree: true });
+            }
+        });
+
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        setTimeout(() => {
+            observer.disconnect();
+            if (!functionFound) {
+                console.error(`Function addIconToPluginPanel not found after ${maxWaitTime / 1000} seconds.`);
+            }
+        }, maxWaitTime);
+    })();
+
+    const aSpectrumCss = `
+#${buttonId}:hover {
+    color: var(--color-5);
+    filter: brightness(120%);
 }
 `
-$("<style>")
-    .prop("type", "text/css")
-    .html(aSpectrumCss)
-    .appendTo("head");
+    $("<style>")
+        .prop("type", "text/css")
+        .html(aSpectrumCss)
+        .appendTo("head");
 
-const aSpectrumText = $('<strong>', {
-    class: 'aspectrum-text',
-    html: SPECTRUM_BUTTON_NAME
-});
-
-const aSpectrumButton = $('<button>', {
-    id: 'spectrum-graph-button',
-});
-
-aSpectrumButton.append(aSpectrumText);
-
-function initializeSpectrumButton() {
-
-    let buttonWrapper = $('#button-wrapper');
-    if (buttonWrapper.length < 1) {
-        buttonWrapper = createDefaultButtonWrapper();
-    }
-
-    if (buttonWrapper.length) {
-        aSpectrumButton.addClass('hide-phone bg-color-2')
-        buttonWrapper.append(aSpectrumButton);
-    }
-    displaySignalCanvas();
-}
-
-// Create a default button wrapper if it does not exist
-function createDefaultButtonWrapper() {
-    const wrapperElement = $('.tuner-info');
-    if (wrapperElement.length) {
-        const buttonWrapper = $('<div>', {
-            id: 'button-wrapper'
-        });
-        buttonWrapper.addClass('button-wrapper');
-        wrapperElement.append(buttonWrapper);
-        if (useButtonSpacingBetweenCanvas) wrapperElement.append(document.createElement('br'));
-        return buttonWrapper;
-    } else {
-        console.error(`${pluginName}: Standard button location not found. Unable to add button.`);
-        return null;
-    }
-}
-
-$(window).on('load', function() {
-    setTimeout(initializeSpectrumButton, 200);
-
-    aSpectrumButton.on('click', function() {
-        toggleSpectrum();
+    // Additional code
+    $(window).on('load', function() {
+        setTimeout(displaySignalCanvas, 200);
     });
-});
+}
+
+if (document.querySelector('.dashboard-panel-plugin-list')) {
+    createButton('spectrum-graph-button');
+} else {
+    // FM-DX Webserver v1.3.4 compatibility
+    const SPECTRUM_BUTTON_NAME = 'SPECTRUM';
+    const aSpectrumCss = `
+    #spectrum-graph-button {
+    border-radius: 0px;
+    width: 100px;
+    height: 22px;
+    position: relative;
+    margin-top: 16px;
+    margin-left: 5px;
+    right: 0px;
+    }
+    `
+    $("<style>")
+        .prop("type", "text/css")
+        .html(aSpectrumCss)
+        .appendTo("head");
+
+    const aSpectrumText = $('<strong>', {
+        class: 'aspectrum-text',
+        html: SPECTRUM_BUTTON_NAME
+    });
+
+    const aSpectrumButton = $('<button>', {
+        id: 'spectrum-graph-button',
+    });
+
+    aSpectrumButton.append(aSpectrumText);
+
+    function initializeSpectrumButton() {
+
+        let buttonWrapper = $('#button-wrapper');
+        if (buttonWrapper.length < 1) {
+            buttonWrapper = createDefaultButtonWrapper();
+        }
+
+        if (buttonWrapper.length) {
+            aSpectrumButton.addClass('hide-phone bg-color-2')
+            buttonWrapper.append(aSpectrumButton);
+        }
+        displaySignalCanvas();
+    }
+
+    // Create a default button wrapper if it does not exist
+    function createDefaultButtonWrapper() {
+        const wrapperElement = $('.tuner-info');
+        if (wrapperElement.length) {
+            const buttonWrapper = $('<div>', {
+                id: 'button-wrapper'
+            });
+            buttonWrapper.addClass('button-wrapper');
+            wrapperElement.append(buttonWrapper);
+            if (useButtonSpacingBetweenCanvas) wrapperElement.append(document.createElement('br'));
+            return buttonWrapper;
+        } else {
+            console.error(`${pluginName}: Standard button location not found. Unable to add button.`);
+            return null;
+        }
+    }
+
+    $(window).on('load', function() {
+        setTimeout(initializeSpectrumButton, 200);
+
+        aSpectrumButton.on('click', function() {
+            toggleSpectrum();
+        });
+    });
+}
 
 // Create the WebSocket connection
 const currentURL = new URL(window.location.href);
@@ -249,7 +309,7 @@ setupSendSocket();
 
 // Function to check for updates
 async function fetchFirstLine() {
-    if (checkUpdates) {
+    if (CHECK_FOR_UPDATES) {
         const urlCheckForUpdate = 'https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/version'
 
         try {
@@ -273,7 +333,7 @@ async function fetchFirstLine() {
 
 // Check for updates
 fetchFirstLine().then(version => {
-    if (checkUpdates && version) {
+    if (CHECK_FOR_UPDATES && version) {
         if (version !== pluginVersion) {
             updateText = "There is a new version of this plugin available";
             console.log(`${pluginName}: ${updateText}`);
@@ -387,6 +447,7 @@ function ScanButton() {
         align-items: center;
         justify-content: center;
         box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
+        z-index: 8;
     }
 `;
 
@@ -447,6 +508,8 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     // Locate the canvas and its parent container
     const canvas = document.getElementById('sdr-graph');
     if (canvas) {
+        canvas.style.backdropFilter = `blur(${BACKGROUND_BLUR_PIXELS}px)`;
+        canvas.style.borderRadius = '8px';
         const canvasContainer = canvas.parentElement;
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
             canvasContainer.style.position = 'relative';
@@ -482,6 +545,7 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
         align-items: center;
         justify-content: center;
         box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
+        z-index: 8;
     }
     .${Id} i {
         font-size: 14px;
@@ -519,6 +583,7 @@ function insertUpdateText(updateText) {
     updateTextElement.style.padding = '4px 8px';
     updateTextElement.style.borderRadius = '5px';
     updateTextElement.style.opacity = '1';
+    updateTextElement.style.zIndex = '8';
     updateTextElement.addEventListener('mouseenter', () => { updateTextElement.style.opacity = '0.1'; });
 
     // Locate canvas container
@@ -682,9 +747,27 @@ async function getCurrentAntenna() {
 
 // Display signal canvas (default)
 function displaySignalCanvas() {
+
+    // Lock button
+    const pluginButton = document.getElementById('spectrum-graph-button');
+    pluginButton.disabled = true;
+    setTimeout(() => {
+        pluginButton.disabled = false;
+    }, 400);
+
     const sdrCanvas = document.getElementById('sdr-graph');
     if (sdrCanvas) {
         sdrCanvas.style.display = 'none';
+        //sdrCanvas.style.visibility = 'hidden';
+        sdrCanvas.style.display = 'block';
+        // Fade out effect - TODO?
+        setTimeout(() => {
+            sdrCanvas.style.visibility = 'hidden';
+            sdrCanvas.style.position = 'absolute';
+        }, 300);
+        sdrCanvas.style.opacity = 0;
+        sdrCanvas.style.transition = 'opacity 0.3s ease-in-out, transform 0.4s ease-in-out';
+        sdrCanvas.style.transform = 'scale(0.96)';
         isGraphOpen = false;
     }
     const sdrCanvasScanButton = document.getElementById('spectrum-scan-button');
@@ -726,21 +809,48 @@ function displaySignalCanvas() {
     }
     const signalCanvas = document.getElementById('signal-canvas');
     if (signalCanvas) {
-        signalCanvas.style.display = 'block';
+
+        //signalCanvas.style.display = 'block';
+        setTimeout(() => {
+            signalCanvas.style.display = 'block';
+            // Fade in effect
+            signalCanvas.style.visibility = 'visible';
+            signalCanvas.style.opacity = 1;
+        }, 10); // 400 when it's below
     }
 }
 
 // Display SDR graph output
 function displaySdrGraph() {
+
+    // Lock button
+    const pluginButton = document.getElementById('spectrum-graph-button');
+    pluginButton.disabled = true;
+    setTimeout(() => {
+        pluginButton.disabled = false;
+    }, 400);
+
     const sdrCanvas = document.getElementById('sdr-graph');
+    let tmpCanvasHeight = sdrCanvas.height;
     if (sdrCanvas) {
         sdrCanvas.style.display = 'block';
+        // Fade in effect
+        sdrCanvas.style.visibility = 'visible';
+        sdrCanvas.style.opacity = 1;
+        canvas.style.transform = 'scale(1)';
         isGraphOpen = true;
-        if (!borderlessTheme) canvas.style.border = "1px solid var(--color-3)";
+        if (!BORDERLESS_THEME) canvas.style.border = "1px solid var(--color-3)";
         setTimeout(drawGraph, drawGraphDelay);
         const signalCanvas = document.getElementById('signal-canvas');
         if (signalCanvas) {
-            signalCanvas.style.display = 'none';
+            setTimeout(() => {
+                signalCanvas.style.display = 'none';
+            }, 300);
+            // Fade out effect - TODO?
+            signalCanvas.style.position = 'absolute';
+            signalCanvas.style.opacity = 0;
+            signalCanvas.style.transition = 'opacity 0.4s ease-in-out, transform 0.5s ease-in-out';
+            signalCanvas.style.transform = 'scale(0.98)';
         }
     }
     const loggingCanvas = document.getElementById('logging-canvas');
@@ -767,7 +877,7 @@ function adjustSdrGraphCanvasHeight() {
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches) {
         displaySignalCanvas(); // Ensure it doesn't appear in portrait mode
     } else {
-        if (window.innerHeight < 860 && window.innerWidth > 480) {
+        if (window.innerHeight < canvasFullHeight && window.innerWidth > 480) {
             canvas.height = canvasHeightSmall;
         } else {
             canvas.height = canvasHeightLarge;
@@ -863,13 +973,14 @@ function initializeCanvasInteractions() {
     // Style tooltip
     tooltip.style.position = 'absolute';
     tooltip.style.background = 'var(--color-3-transparent)';
+    tooltip.style.border = '1px solid var(--color-3)';
     tooltip.style.color = 'var(--color-main-2)';
     tooltip.style.padding = '5px';
     tooltip.style.borderRadius = '8px';
     tooltip.style.fontSize = '12px';
     tooltip.style.pointerEvents = 'none';
     tooltip.style.visibility = 'hidden';
-    tooltip.style.zIndex = '20';
+    tooltip.style.zIndex = '9';
 
     // Append tooltip inside the canvas-container
     canvasContainer.appendChild(tooltip);
@@ -949,7 +1060,7 @@ function initializeCanvasInteractions() {
     }
 
     function handleClick(event) {
-        if (!enableMouseClickToTune) return;
+        if (!ENABLE_MOUSE_CLICK_TO_TUNE) return;
         const rect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
 
@@ -969,7 +1080,7 @@ function initializeCanvasInteractions() {
 
     // Function to control frequency via mouse wheel
     function handleWheelScroll(event) {
-        if (enableMouseScrollWheel) {
+        if (ENABLE_MOUSE_SCROLL_WHEEL) {
             event.preventDefault(); // Prevent webpage scrolling
 
             // Normalize deltaY value for cross-browser consistency
@@ -1039,7 +1150,7 @@ resizeCanvas();
 
 window.addEventListener("resize", resizeCanvas);
 
-if (window.innerHeight < 860 && window.innerWidth > 480) {
+if (window.innerHeight < canvasFullHeight && window.innerWidth > 480) {
     canvas.height = canvasHeightSmall;
 } else {
     canvas.height = canvasHeightLarge;
@@ -1052,7 +1163,7 @@ container.appendChild(canvas);
 function getBackgroundColor(element) {
     return window.getComputedStyle(element).backgroundColor;
 }
-const wrapperOuter = document.getElementById('wrapper-outer');
+const wrapperOuter = document.getElementById('wrapper');
 
 $(window).on('load', function() {
     setTimeout(() => {
@@ -1137,7 +1248,7 @@ function drawGraph() {
             return;
         }
 
-        if (adjustScaleToOutline) {
+        if (ADJUST_SCALE_TO_OUTLINE) {
             minSigOutline = Math.max(Math.min(...savedOutline.map(p => p.sig)) - dynamicPadding, -1);
             maxSigOutline = Math.min(Math.max(...savedOutline.map(p => p.sig)) + dynamicPadding, canvas.height);
         }
@@ -1146,7 +1257,7 @@ function drawGraph() {
     // Determine min signal value dynamically
     if (localStorageItem.isAutoBaseline) {
         minSig = Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -1); // Dynamic vertical graph
-        if (adjustScaleToOutline && localStorageItem.enableHold && (minSigOutline < minSig)) minSig = minSigOutline;
+        if (ADJUST_SCALE_TO_OUTLINE && localStorageItem.enableHold && (minSigOutline < minSig)) minSig = minSigOutline;
     } else {
         minSig = 0; // Fixed min vertical graph
     }
@@ -1154,7 +1265,7 @@ function drawGraph() {
     // Determine max signal value dynamically
     if (!localStorageItem.fixedVerticalGraph) {
         maxSig = (Math.max(...sigArray.map(d => d.sig)) - minSig) + dynamicPadding || 0.01; // Dynamic vertical graph
-        if (adjustScaleToOutline && localStorageItem.enableHold && (maxSigOutline > maxSig)) maxSig = (maxSigOutline - minSig);
+        if (ADJUST_SCALE_TO_OUTLINE && localStorageItem.enableHold && (maxSigOutline > maxSig)) maxSig = (maxSigOutline - minSig);
     } else {
         maxSig = 80 - minSig; // Fixed max vertical graph
     }
@@ -1200,7 +1311,7 @@ function drawGraph() {
     const colorBackground = getComputedStyle(document.documentElement).getPropertyValue('--color-1-transparent').trim();
 
     // Draw background
-    if (!borderlessTheme) {
+    if (!BORDERLESS_THEME) {
         ctx.fillStyle = colorBackground; // Background
         ctx.fillRect(0, 0, width, height);
     }
@@ -1209,7 +1320,7 @@ function drawGraph() {
     ctx.setLineDash([]);
 
     // Draw frequency labels and tick marks
-    if (borderlessTheme) {
+    if (BORDERLESS_THEME) {
         ctx.fillStyle = colorText;
         ctx.font = `12px Titillium Web, Helvetica, Calibri, Arial, Monospace, sans-serif`;
     } else {
@@ -1458,7 +1569,7 @@ function drawGraph() {
     const colorLines = getComputedStyle(document.documentElement).getPropertyValue('--color-5').trim();
 
     ctx.setLineDash([]);
-    if (borderlessTheme) {
+    if (BORDERLESS_THEME) {
         ctx.strokeStyle = colorLines;
     } else {
         ctx.strokeStyle = '#98989f';
@@ -1487,7 +1598,7 @@ function drawGraph() {
             let y = Math.round(canvas.height - (point.sig - minSig) * yScale);
 
             // Clamp y value if it's below the graph
-            if (!adjustScaleToOutline) y = Math.max(0, Math.min(canvas.height, y));
+            if (!ADJUST_SCALE_TO_OUTLINE) y = Math.max(0, Math.min(canvas.height, y));
 
             if (i === 0) {
                 ctx.moveTo(x, y - 20);

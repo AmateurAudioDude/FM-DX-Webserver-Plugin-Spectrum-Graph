@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.0 by AAD
+    Spectrum Graph v1.2.1 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -25,7 +25,7 @@ const webserverPort = config.webserver.webserverPort || 8080;
 const externalWsUrl = `ws://127.0.0.1:${webserverPort}`;
 
 // let variables
-let extraSocket, textSocket, textSocketLost, messageParsed, messageParsedTimeout, startTime, tuningLowerLimitScan, tuningUpperLimitScan, tuningLowerLimitOffset, tuningUpperLimitOffset, debounceTimer;
+let extraSocket, textSocket, textSocketLost, messageParsed, messageParsedTimeout, startTime, tuningLowerLimitScan, tuningUpperLimitScan, tuningLowerLimitOffset, tuningUpperLimitOffset, debounceTimer, ipTimeout;
 let fmLowerLimit = 86;
 let ipAddress = externalWsUrl;
 let currentFrequency = 0;
@@ -58,7 +58,9 @@ function customRouter() {
         const pluginHeader = req.get('X-Plugin-Name') || 'NoPlugin';
 
         if (pluginHeader === 'SpectrumGraphPlugin') {
-            ipAddress = req.headers['x-forwarded-for']?.split(',')[0] || req.connection.remoteAddress;
+            ipAddress = req.headers['x-forwarded-for']?.split(',')[0] || req.connection.remoteAddress || externalWsUrl;
+            clearTimeout(ipTimeout);
+            ipTimeout = setTimeout(() => { ipAddress = externalWsUrl; }, 5000);
             res.json(spectrumData);
         } else {
             res.status(403).json({ error: 'Unauthorised' });
@@ -80,17 +82,19 @@ let tuningRange = 0; // MHz
 let tuningStepSize = 100; // kHz
 let tuningBandwidth = 56; // kHz
 let warnIncompleteData = false; // Warn about incomplete data
+let logLocalCommands = true; // Log locally sent commands
 
 const defaultConfig = {
     rescanDelay: 3,
     tuningRange: 0,
     tuningStepSize: 100,
     tuningBandwidth: 56,
-    warnIncompleteData: false
+    warnIncompleteData: false,
+    logLocalCommands: true
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'warnIncompleteData'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'warnIncompleteData', 'logLocalCommands'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -132,6 +136,7 @@ function loadConfigFile(isReloaded) {
             tuningStepSize = !isNaN(Number(config.tuningStepSize)) ? Number(config.tuningStepSize) : defaultConfig.tuningStepSize;
             tuningBandwidth = !isNaN(Number(config.tuningBandwidth)) ? Number(config.tuningBandwidth) : defaultConfig.tuningBandwidth;
             warnIncompleteData = typeof config.warnIncompleteData === 'boolean' ? config.warnIncompleteData : defaultConfig.warnIncompleteData;
+            logLocalCommands = typeof config.logLocalCommands === 'boolean' ? config.logLocalCommands : defaultConfig.logLocalCommands;
 
             // Save the updated config if there were any modifications
             if (configModified) {
@@ -273,7 +278,6 @@ async function ExtraWebSocket() {
             extraSocket.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
-                    ipAddress = externalWsUrl;
                     //logInfo(JSON.stringify(message));
 
                     // Ignore messages that aren't for spectrum-graph
@@ -708,7 +712,7 @@ function startScan(command) {
             return;
         }
     }
-    logInfo(`${pluginName}: Spectral commands sent (${ipAddress})`);
+    if (logLocalCommands || (!logLocalCommands && (!ipAddress.includes('ws://')) || isFirstRun)) logInfo(`${pluginName}: Spectral commands sent (${ipAddress})`);
 
     // Reset data before receiving new data
     interceptedUData = null;
@@ -716,7 +720,7 @@ function startScan(command) {
     sigArray = [];
 
     // Wait for U value using async
-    async function waitForUValue(timeout = 10000, interval = 10) {
+    async function waitForUValue(timeout = 8000, interval = 10) {
         const waitStartTime = Date.now(); // Start of waiting period
 
         while (Date.now() - waitStartTime < timeout) {
@@ -749,7 +753,7 @@ function startScan(command) {
             if (debug) console.log(uValue);
 
             const completeTime = ((Date.now() - scanStartTime) / 1000).toFixed(1); // Calculate total time
-            logInfo(`${pluginName}: Spectrum scan (${(tuningLowerLimitScan / 1000)}-${(tuningUpperLimitScan / 1000)} MHz) ${antennaResponse.enabled ? `for Ant. ${antennaCurrent} ` : ''}complete in ${completeTime} seconds.`);
+            if (logLocalCommands || (!logLocalCommands && (!ipAddress.includes('ws://')) || isFirstRun)) logInfo(`${pluginName}: Spectrum scan (${(tuningLowerLimitScan / 1000)}-${(tuningUpperLimitScan / 1000)} MHz) ${antennaResponse.enabled ? `for Ant. ${antennaCurrent} ` : ''}complete in ${completeTime} seconds.`);
 
             if (!isFirstRun) lastRestartTime = Date.now();
 
@@ -786,14 +790,14 @@ function restartScan(command) {
     nowTime = Date.now();
 
     if (!isFirstRun && nowTime - lastRestartTime < (rescanDelay * 1000)) {
-        logInfo(`${pluginName} in cooldown mode, can retry in ${(((rescanDelay * 1000) - (nowTime - lastRestartTime)) / 1000).toFixed(1)} seconds (${ipAddress})`);
+        logInfo(`${pluginName} in cooldown mode, can retry in ${(((rescanDelay * 1000) - (nowTime - lastRestartTime)) / 1000).toFixed(1)} seconds.`);
         return;
     }
 
     lastRestartTime = nowTime;
 
     // Restart scan
-    if (!isScanRunning) setTimeout(() => startScan(command), 20);
+    if (!isScanRunning) setTimeout(() => startScan(command), 80);
 }
 
 const getSpectrumData = () => {
