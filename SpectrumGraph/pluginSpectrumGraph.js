@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.1 by AAD
+    Spectrum Graph v1.2.2 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -17,7 +17,7 @@ const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pix
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.1';
+const pluginVersion = '1.2.2';
 
 // const variables
 const pluginName = "Spectrum Graph";
@@ -62,6 +62,7 @@ let ScannerMode = '';
 let ScannerModeTemp = '';
 let ScannerSensitivity = 0;
 let ScannerSpectrumLimiterValue = 0; 
+let ScannerLimiterOpacity = 0.2;
 
 // localStorage variables
 //localStorageItem.enableHold located in getCurrentAntenna()
@@ -421,9 +422,11 @@ function ScanButton() {
     if (canvas) {
         const canvasContainer = canvas.parentElement;
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
-            canvasContainer.style.position = 'relative';
-            canvas.style.cursor = 'crosshair';
-            canvasContainer.appendChild(spectrumButton);
+            setTimeout(() => {
+                canvasContainer.style.position = 'relative';
+                canvas.style.cursor = 'crosshair';
+                canvasContainer.appendChild(spectrumButton);
+            }, 200);
         } else {
             console.error('Parent container is not .canvas-container');
         }
@@ -457,16 +460,18 @@ function ScanButton() {
     styleElement.innerHTML = rectangularButtonStyle;
     document.head.appendChild(styleElement);
 
-    /*
-    ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,        ButtonPosition)
-    */
-    //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
-    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
-    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96');
-    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136');
-    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176');
-    if (typeof initTooltips === 'function') initTooltips();
-    if (updateText) insertUpdateText(updateText);
+    setTimeout(() => {
+        /*
+        ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,        ButtonPosition)
+        */
+        //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
+        ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
+        ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96');
+        ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136');
+        ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176');
+        if (typeof initTooltips === 'function') initTooltips();
+        if (updateText) insertUpdateText(updateText);
+    }, 200);
 }
 
 // Create button
@@ -1054,11 +1059,18 @@ function initializeCanvasInteractions() {
 
             // Tooltip positioning
             let tooltipX = ((xOffset + 10) + (closestPoint.freq - minFreq) * xScale) + canvasFullWidthOffset;
-            const tooltipY = canvas.height - 20 - signalValue * yScale;
+            let tooltipY = parseInt(canvas.height - 20 - signalValue * yScale);
             const tooltipWidth = tooltip.offsetWidth;
+            const tooltipHeight = tooltip.offsetHeight;
 
+            // Limit tooltip width location
             if (tooltipX + tooltipWidth > (canvas.width + canvasFullWidthOffset)) {
                 tooltipX = (mouseX - tooltip.offsetWidth - 10) + canvasFullWidthOffset;
+            }
+
+            // Limit tooltip height location
+            if (tooltipY - tooltipHeight < 10) {
+                tooltipY = (tooltipY - (tooltipY - tooltipHeight)) + 1;
             }
 
             tooltip.style.left = `${tooltipX}px`;
@@ -1505,7 +1517,7 @@ function drawGraph() {
             const yPositionLimiterValue = height - 20 - ((ScannerSpectrumLimiterValue - minSig) * yScale);
 
             // Draw a semi-transparent red area to the top
-            ctx.fillStyle = 'rgba(226, 61, 1, 0.2)';
+            ctx.fillStyle = `rgba(226, 61, 1, ${ScannerLimiterOpacity})`;
             ctx.fillRect(xOffset, 8, width - xOffset, yPositionLimiterValue - 8);
 
             // Draw a contrasting red line
@@ -1529,7 +1541,7 @@ function drawGraph() {
             const yPositionScannerSensitivityValue = height - 20 - ((ScannerSensitivity - minSig) * yScale);
 
             // Draw a semi-transparent blue area to the bottom
-            ctx.fillStyle = 'rgba(4, 56, 215, 0.2)';
+            ctx.fillStyle = `rgba(4, 56, 215, ${ScannerLimiterOpacity})`;
             ctx.fillRect(xOffset, yPositionScannerSensitivityValue, width - xOffset, height - 20 - yPositionScannerSensitivityValue);
 
             // Draw a contrasting blue line

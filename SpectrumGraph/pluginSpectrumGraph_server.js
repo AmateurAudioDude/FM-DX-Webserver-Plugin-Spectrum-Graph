@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.1 by AAD
+    Spectrum Graph v1.2.2 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
