@@ -114,7 +114,8 @@ function createButton(buttonId) {
     color: var(--color-5);
     filter: brightness(120%);
 }
-`
+`;
+
     $("<style>")
         .prop("type", "text/css")
         .html(aSpectrumCss)
@@ -128,6 +129,15 @@ function createButton(buttonId) {
 
 if (document.querySelector('.dashboard-panel-plugin-list')) {
     createButton('spectrum-graph-button');
+
+    const style = document.createElement('style');
+    style.textContent = `
+#spectrum-graph-button.active {
+    background-color: var(--color-2) !important;
+    filter: brightness(120%);
+}
+`;
+    document.head.appendChild(style);
 } else {
     // FM-DX Webserver v1.3.4 compatibility
     const SPECTRUM_BUTTON_NAME = 'SPECTRUM';
@@ -705,11 +715,38 @@ async function initializeGraph() {
             }
         } else {
             console.log(`${pluginName} found no data available at page load.`);
+            getDummyData();
         }
     } catch (error) {
-        console.error(`${pluginName} error during graph initialisation:`, error);
+        console.error(`${pluginName} error during graph initialisation:`);
+        getDummyData();
     }
     getCurrentAntenna();
+}
+
+function getDummyData() {
+    let dummyFreqStart = 86;
+    let dummyFreqEnd = 108;
+    const element = document.querySelector("#dashboard-panel-description.hidden-panel .flex-container .tuner-desc .text-small .color-4");
+    if (element) {
+      const text = element.textContent;
+      const regex = /(\d+(\.\d+)?)\s*MHz\s*-\s*(\d+(\.\d+)?)/;
+      const match = text.match(regex);
+      if (match && dummyFreqStart >= 0 && dummyFreqEnd <= 200) {
+        dummyFreqStart = Math.max(Number(match[1]), 86);
+        dummyFreqEnd = Number(match[3]);
+      } else {
+        //console.log("No match found");
+      }
+    } else {
+      //console.log("Element not found");
+    }
+    // Dummy data
+    if (!sigArray || sigArray.length === 0) {
+        sigArray = [{ freq: `${dummyFreqStart}`, sig: "0.00" }];
+        sigArray.push({ freq: (dummyFreqStart + dummyFreqEnd) / 2, sig: "0.00" });
+        sigArray.push({ freq: `${dummyFreqEnd}`, sig: "0.00" });
+    }
 }
 
 // Call function on page load
@@ -747,13 +784,17 @@ async function getCurrentAntenna() {
 
 // Display signal canvas (default)
 function displaySignalCanvas() {
-
     // Lock button
     const pluginButton = document.getElementById('spectrum-graph-button');
-    pluginButton.disabled = true;
-    setTimeout(() => {
-        pluginButton.disabled = false;
-    }, 400);
+    if (pluginButton) {
+        pluginButton.classList.remove('active');
+        pluginButton.disabled = true;
+        setTimeout(() => {
+            pluginButton.disabled = false;
+        }, 400);
+    } else {
+        console.warn(`${pluginName}: Resolution too low to display.`);
+    }
 
     const sdrCanvas = document.getElementById('sdr-graph');
     if (sdrCanvas) {
@@ -820,9 +861,9 @@ function displaySignalCanvas() {
 
 // Display SDR graph output
 function displaySdrGraph() {
-
     // Lock button
     const pluginButton = document.getElementById('spectrum-graph-button');
+    pluginButton.classList.add('active');
     pluginButton.disabled = true;
     setTimeout(() => {
         pluginButton.disabled = false;
@@ -887,10 +928,10 @@ function displaySdrGraph() {
 
 // Adjust dataCanvas height based on window height
 function adjustSdrGraphCanvasHeight() {
-    if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches) {
+    if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches && window.innerWidth <= 480) {
         displaySignalCanvas(); // Ensure it doesn't appear in portrait mode
     } else {
-        if (window.innerHeight < canvasFullHeight && window.innerWidth > 480) {
+        if (window.innerHeight <= canvasFullHeight && window.innerWidth > 480) {
             canvas.height = canvasHeightSmall;
         } else {
             canvas.height = canvasHeightLarge;
@@ -1170,7 +1211,7 @@ resizeCanvas();
 
 window.addEventListener("resize", resizeCanvas);
 
-if (window.innerHeight < canvasFullHeight && window.innerWidth > 480) {
+if (window.innerHeight <= canvasFullHeight && window.innerWidth > 480) {
     canvas.height = canvasHeightSmall;
 } else {
     canvas.height = canvasHeightLarge;
@@ -1290,8 +1331,8 @@ function drawGraph() {
         maxSig = 80 - minSig; // Fixed max vertical graph
     }
 
-    const minFreq = Math.min(...sigArray.map(d => d.freq)) || 88;
-    const maxFreq = Math.max(...sigArray.map(d => d.freq)) || 108;
+    const minFreq = Math.max(Math.min(...sigArray.map(d => d.freq)) || 88, 0);
+    const maxFreq = Math.min(Math.max(...sigArray.map(d => d.freq)) || 108, 200);
 
     if (maxFreq - minFreq <= 12) isDecimalMarkerRoundOff = false;
 
