@@ -227,8 +227,11 @@ async function setupSendSocket() {
                 wsSendSocket.onmessage = function(event) {
                     // Parse incoming JSON data
                     const data = JSON.parse(event.data);
+                    if (data.hasOwnProperty('isScanning')) document.querySelector('#spectrum-scan-button').style.cursor = 'pointer';
 
                     if (data.type === 'spectrum-graph') {
+                        document.querySelector('#spectrum-scan-button').style.cursor = 'wait';
+                        setTimeout(() => document.querySelector('#spectrum-scan-button').style.cursor = 'pointer', 3000);
                         console.log(`${pluginName} command sent`);
                     }
 
