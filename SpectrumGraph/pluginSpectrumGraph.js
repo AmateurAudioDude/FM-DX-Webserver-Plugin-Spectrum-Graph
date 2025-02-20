@@ -140,6 +140,7 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
     document.head.appendChild(style);
 } else {
     // FM-DX Webserver v1.3.4 compatibility
+    const useLegacyButtonSpacingBetweenCanvas = true;
     const SPECTRUM_BUTTON_NAME = 'SPECTRUM';
     const aSpectrumCss = `
     #spectrum-graph-button {
@@ -191,7 +192,7 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
             });
             buttonWrapper.addClass('button-wrapper');
             wrapperElement.append(buttonWrapper);
-            if (useButtonSpacingBetweenCanvas) wrapperElement.append(document.createElement('br'));
+            if (useLegacyButtonSpacingBetweenCanvas) wrapperElement.append(document.createElement('br'));
             return buttonWrapper;
         } else {
             console.error(`${pluginName}: Standard button location not found. Unable to add button.`);
