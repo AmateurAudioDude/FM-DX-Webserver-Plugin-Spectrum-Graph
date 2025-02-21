@@ -25,8 +25,8 @@ const debug = false;
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signal calibration
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
-const canvasHeightSmall = 120;
-const canvasHeightLarge = 176;
+const canvasHeightSmall = BORDERLESS_THEME ? 120 : 118;
+const canvasHeightLarge = BORDERLESS_THEME ? 176 : 172;
 const canvasFullHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
 const topValue = BORDERLESS_THEME ? '12px' : '14px';
 
