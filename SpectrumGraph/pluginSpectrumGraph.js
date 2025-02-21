@@ -91,7 +91,7 @@ function createButton(buttonId) {
                                 // Code to execute on click
                                 toggleSpectrum();
                             });
-                        }, 200);
+                        }, 400);
                         buttonObserver.disconnect(); // Stop observing once button is found
                     }
                 });
