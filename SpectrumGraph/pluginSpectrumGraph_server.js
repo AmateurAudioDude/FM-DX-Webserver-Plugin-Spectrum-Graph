@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.2 by AAD
+    Spectrum Graph v1.2.3 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -26,7 +26,7 @@ const externalWsUrl = `ws://127.0.0.1:${webserverPort}`;
 
 // let variables
 let extraSocket, textSocket, textSocketLost, messageParsed, messageParsedTimeout, startTime, tuningLowerLimitScan, tuningUpperLimitScan, tuningLowerLimitOffset, tuningUpperLimitOffset, debounceTimer, ipTimeout;
-let fmLowerLimit = 86;
+let fmLowerLimit = 86; // Match dummyFreqStart value (default: 86)
 let ipAddress = externalWsUrl;
 let currentFrequency = 0;
 let initialDelay = 0;

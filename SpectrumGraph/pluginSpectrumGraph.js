@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.2 by AAD
+    Spectrum Graph v1.2.3 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -17,7 +17,7 @@ const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pix
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.2';
+const pluginVersion = '1.2.3';
 
 // const variables
 const pluginName = "Spectrum Graph";
@@ -52,6 +52,7 @@ let dynamicPadding = 1;
 let localStorageItem = {};
 let signalText = localStorage.getItem('signalUnit') || 'dbf';
 let sigOffset, xSigOffset, sigDesc, prevSignalText;
+let buttonTimeout;
 let removeUpdateTextTimeout;
 let updateText;
 let wsSendSocket;
@@ -91,6 +92,12 @@ function createButton(buttonId) {
                                 toggleSpectrum();
                             });
                         }, 40);
+                        // Additional code
+                        const pluginButton = document.getElementById('spectrum-graph-button');
+                        if (pluginButton) {
+                            pluginButton.classList.remove('active');
+                            pluginButton.disabled = true; // Enabled in displaySignalCanvas()
+                        }
                         buttonObserver.disconnect(); // Stop observing once button is found
                     }
                 });
@@ -228,11 +235,19 @@ async function setupSendSocket() {
                 wsSendSocket.onmessage = function(event) {
                     // Parse incoming JSON data
                     const data = JSON.parse(event.data);
-                    if (data.hasOwnProperty('isScanning')) document.querySelector('#spectrum-scan-button').style.cursor = 'pointer';
+                    const buttonQuery = document.querySelector('#spectrum-scan-button');
+                    if (buttonQuery && data.hasOwnProperty('isScanning')) {
+                        buttonQuery.style.cursor = 'pointer';
+                        clearTimeout(buttonTimeout);
+                    }
 
                     if (data.type === 'spectrum-graph') {
-                        document.querySelector('#spectrum-scan-button').style.cursor = 'wait';
-                        setTimeout(() => document.querySelector('#spectrum-scan-button').style.cursor = 'pointer', 3000);
+                        const buttonQuery = document.querySelector('#spectrum-scan-button');
+                        if (buttonQuery) buttonQuery.style.cursor = 'wait';
+                        clearTimeout(buttonTimeout);
+                        buttonTimeout = setTimeout(function() {
+                            if (buttonQuery) buttonQuery.style.cursor = 'pointer';
+                        }, 3000);
                         console.log(`${pluginName} command sent`);
                     }
 
@@ -390,6 +405,16 @@ function signalUnits() {
 }
 setInterval(signalUnits, 3000);
 
+// Function to apply fade effect and transition styles
+function applyFadeEffect(buttonId, opacity, scale) {
+    const button = document.getElementById(buttonId);
+    if (button) {
+        button.style.opacity = opacity;
+        button.style.transition = 'opacity 0.4s ease-in-out, transform 0.4s ease-in-out';
+        button.style.transform = `scale(${scale})`;
+    }
+}
+
 // Create scan button to refresh graph
 function ScanButton() {
     // Remove any existing instances of button
@@ -436,11 +461,9 @@ function ScanButton() {
     if (canvas) {
         const canvasContainer = canvas.parentElement;
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
-            setTimeout(() => {
-                canvasContainer.style.position = 'relative';
-                canvas.style.cursor = 'crosshair';
-                canvasContainer.appendChild(spectrumButton);
-            }, 200);
+            canvasContainer.style.position = 'relative';
+            canvas.style.cursor = 'crosshair';
+            canvasContainer.appendChild(spectrumButton);
         } else {
             console.error('Parent container is not .canvas-container');
         }
@@ -474,18 +497,32 @@ function ScanButton() {
     styleElement.innerHTML = rectangularButtonStyle;
     document.head.appendChild(styleElement);
 
+    /*
+    ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,        ButtonPosition)
+    */
+    //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
+    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
+    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96');
+    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136');
+    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176');
+    if (typeof initTooltips === 'function') initTooltips();
+    if (updateText) insertUpdateText(updateText);
+
+    // Fade effect for buttons
+    applyFadeEffect('spectrum-scan-button', 0, 0.96);
+    applyFadeEffect('hold-button', 0, 0.96);
+    applyFadeEffect('smoothing-on-off-button', 0, 0.96);
+    applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
+    applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
+
     setTimeout(() => {
-        /*
-        ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,        ButtonPosition)
-        */
-        //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
-        ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
-        ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96');
-        ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136');
-        ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176');
-        if (typeof initTooltips === 'function') initTooltips();
-        if (updateText) insertUpdateText(updateText);
-    }, 200);
+        // Fade in effect for buttons
+        applyFadeEffect('spectrum-scan-button', 0.8, 1);
+        applyFadeEffect('hold-button', 0.8, 1);
+        applyFadeEffect('smoothing-on-off-button', 0.8, 1);
+        applyFadeEffect('fixed-dynamic-on-off-button', 0.8, 1);
+        applyFadeEffect('auto-baseline-on-off-button', 0.8, 1);
+    }, 40);
 }
 
 // Create button
@@ -566,6 +603,7 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
         align-items: center;
         justify-content: center;
         box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
+        transform: scale(1);
         z-index: 8;
     }
     .${Id} i {
@@ -722,7 +760,7 @@ async function initializeGraph() {
             getDummyData();
         }
     } catch (error) {
-        console.error(`${pluginName} error during graph initialisation:`);
+        console.error(`${pluginName} error during graph initialisation.`);
         getDummyData();
     }
     getCurrentAntenna();
@@ -737,13 +775,9 @@ function getDummyData() {
       const regex = /(\d+(\.\d+)?)\s*MHz\s*-\s*(\d+(\.\d+)?)/;
       const match = text.match(regex);
       if (match && dummyFreqStart >= 0 && dummyFreqEnd <= 200) {
-        dummyFreqStart = Math.max(Number(match[1]), 86);
-        dummyFreqEnd = Number(match[3]);
-      } else {
-        //console.log("No match found");
+          dummyFreqStart = Math.max(Number(match[1]), 86); // Match fmLowerLimit value (default: 86)
+          dummyFreqEnd = Number(match[3]);
       }
-    } else {
-      //console.log("Element not found");
     }
     // Dummy data
     if (!sigArray || sigArray.length === 0) {
@@ -802,43 +836,55 @@ function displaySignalCanvas() {
 
     const sdrCanvas = document.getElementById('sdr-graph');
     if (sdrCanvas) {
-        sdrCanvas.style.display = 'none';
-        //sdrCanvas.style.visibility = 'hidden';
         sdrCanvas.style.display = 'block';
-        // Fade out effect - TODO?
+        // Fade effect
         setTimeout(() => {
             sdrCanvas.style.visibility = 'hidden';
             sdrCanvas.style.position = 'absolute';
         }, 300);
         sdrCanvas.style.opacity = 0;
-        sdrCanvas.style.transition = 'opacity 0.3s ease-in-out, transform 0.4s ease-in-out';
+        sdrCanvas.style.transition = 'opacity 0.4s ease-in-out, transform 0.4s ease-in-out';
         sdrCanvas.style.transform = 'scale(0.96)';
         isGraphOpen = false;
     }
-    const sdrCanvasScanButton = document.getElementById('spectrum-scan-button');
-    if (sdrCanvasScanButton) {
-        sdrCanvasScanButton.style.display = 'none';
-    }
-    const sdrCanvasHoldButton = document.getElementById('hold-button');
-    if (sdrCanvasHoldButton) {
-        sdrCanvasHoldButton.style.display = 'none';
-    }
-    const sdrCanvasSmoothingButton = document.getElementById('smoothing-on-off-button');
-    if (sdrCanvasSmoothingButton) {
-        sdrCanvasSmoothingButton.style.display = 'none';
-    }
-    const sdrCanvasFixedDynamicButton = document.getElementById('fixed-dynamic-on-off-button');
-    if (sdrCanvasFixedDynamicButton) {
-        sdrCanvasFixedDynamicButton.style.display = 'none';
-    }
-    const sdrCanvasAutoBaselineButton = document.getElementById('auto-baseline-on-off-button');
-    if (sdrCanvasAutoBaselineButton) {
-        sdrCanvasAutoBaselineButton.style.display = 'none';
-    }
-    const sdrCanvasUpdateText = document.querySelector('.spectrum-graph-update-text');
-    if (sdrCanvasUpdateText) {
-        sdrCanvasUpdateText.remove();
-    }
+
+    setTimeout(() => {
+        applyFadeEffect('spectrum-scan-button', 0, 0.96);
+        applyFadeEffect('hold-button', 0, 0.96);
+        applyFadeEffect('smoothing-on-off-button', 0, 0.96);
+        applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
+        applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
+    }, 10);
+
+    setTimeout(() => {
+        const sdrCanvasScanButton = document.getElementById('spectrum-scan-button');
+        if (sdrCanvasScanButton) {
+            sdrCanvasScanButton.style.display = 'none';
+        }
+        const sdrCanvasHoldButton = document.getElementById('hold-button');
+        if (sdrCanvasHoldButton) {
+            sdrCanvasHoldButton.style.display = 'none';
+        }
+        const sdrCanvasSmoothingButton = document.getElementById('smoothing-on-off-button');
+        if (sdrCanvasSmoothingButton) {
+            sdrCanvasSmoothingButton.style.display = 'none';
+        }
+        const sdrCanvasFixedDynamicButton = document.getElementById('fixed-dynamic-on-off-button');
+        if (sdrCanvasFixedDynamicButton) {
+            sdrCanvasFixedDynamicButton.style.display = 'none';
+        }
+        const sdrCanvasAutoBaselineButton = document.getElementById('auto-baseline-on-off-button');
+        if (sdrCanvasAutoBaselineButton) {
+            sdrCanvasAutoBaselineButton.style.display = 'none';
+        }
+        const sdrCanvasUpdateText = document.querySelector('.spectrum-graph-update-text');
+        if (sdrCanvasUpdateText) {
+            sdrCanvasUpdateText.remove();
+        }
+        // Hide canvas
+        const sdrGraph = document.getElementById('sdr-graph');
+        if (sdrGraph) sdrGraph.style.display = 'none';
+    }, 400);
 
     const loggingCanvas = document.getElementById('logging-canvas');
     if (loggingCanvas) {
@@ -854,80 +900,88 @@ function displaySignalCanvas() {
     }
     const signalCanvas = document.getElementById('signal-canvas');
     if (signalCanvas) {
+        signalCanvas.style.display = 'block';
         setTimeout(() => {
-            signalCanvas.style.display = 'block';
             // Fade in effect
             signalCanvas.style.visibility = 'visible';
             signalCanvas.style.opacity = 1;
-        }, 10); // 400 if it's below
+            signalCanvas.style.transition = 'opacity 0.3s ease-in-out, transform 0.5s ease-in-out';
+            signalCanvas.style.transform = 'scale(1)';
+        }, 40);
     }
 }
 
 // Display SDR graph output
 function displaySdrGraph() {
-    // Lock button
-    const pluginButton = document.getElementById('spectrum-graph-button');
-    pluginButton.classList.add('active');
-    pluginButton.disabled = true;
-    setTimeout(() => {
-        pluginButton.disabled = false;
-    }, 400);
+    // Show canvas
+    const sdrGraph = document.getElementById('sdr-graph');
+    if (sdrGraph) sdrGraph.style.display = 'block';
 
-    const sdrCanvas = document.getElementById('sdr-graph');
-    let tmpCanvasHeight = sdrCanvas.height;
-    if (sdrCanvas) {
-        sdrCanvas.style.display = 'block';
-        // Fade in effect
-        sdrCanvas.style.visibility = 'visible';
-        sdrCanvas.style.opacity = 1;
-        canvas.style.transform = 'scale(1)';
-        isGraphOpen = true;
-        if (!BORDERLESS_THEME) canvas.style.border = "1px solid var(--color-3)";
-        setTimeout(drawGraph, drawGraphDelay);
-        const signalCanvas = document.getElementById('signal-canvas');
-        if (signalCanvas) {
-            setTimeout(() => {
-                signalCanvas.style.display = 'none';
-            }, 300);
-            // Fade out effect - TODO?
-            signalCanvas.style.position = 'absolute';
-            signalCanvas.style.opacity = 0;
-            signalCanvas.style.transition = 'opacity 0.4s ease-in-out, transform 0.5s ease-in-out';
-            signalCanvas.style.transform = 'scale(0.98)';
+    setTimeout(() => {
+        // Lock button
+        const pluginButton = document.getElementById('spectrum-graph-button');
+        pluginButton.classList.add('active');
+        pluginButton.disabled = true;
+        setTimeout(() => {
+            pluginButton.disabled = false;
+        }, 400);
+
+        const sdrCanvas = document.getElementById('sdr-graph');
+        let tmpCanvasHeight = sdrCanvas.height;
+        if (sdrCanvas) {
+            sdrCanvas.style.display = 'block';
+            // Fade in effect
+            sdrCanvas.style.visibility = 'visible';
+            sdrCanvas.style.opacity = 1;
+            sdrCanvas.style.transform = 'scale(1)';
+            isGraphOpen = true;
+            if (!BORDERLESS_THEME) canvas.style.border = "1px solid var(--color-3)";
+            setTimeout(drawGraph, drawGraphDelay);
+            const signalCanvas = document.getElementById('signal-canvas');
+            if (signalCanvas) {
+                setTimeout(() => {
+                    signalCanvas.style.display = 'none';
+                }, 300);
+                // Fade effect
+                signalCanvas.style.position = 'absolute';
+                signalCanvas.style.opacity = 0;
+                signalCanvas.style.transition = 'opacity 0.4s ease-in-out, transform 0.5s ease-in-out';
+                signalCanvas.style.transform = 'scale(0.98)';
+            }
         }
-    }
-    const loggingCanvas = document.getElementById('logging-canvas');
-    if (loggingCanvas) {
-        loggingCanvas.style.display = 'none';
-    }
-    const loggingCanvasButtons = document.querySelector('.download-buttons-container');
-    if (loggingCanvasButtons) {
-        loggingCanvasButtons.style.display = 'none';
-    }
-    const ContainerRotator = document.getElementById('containerRotator');
-    if (ContainerRotator) {
-        if (hideContainerRotator) {
-            ContainerRotator.style.display = 'none';
-            canvasFullWidthOffset = 0;
-        } else {
-            canvasFullWidthOffset = 204;
-            const style = document.createElement('style');
-            style.textContent = `
-                #sdr-graph {
-                    width: 82%;
-                    margin-left: 200px;
-                    margin-top: 0px;
-                }
-            `;
-            document.head.appendChild(style);
-            resizeCanvas();
+        const loggingCanvas = document.getElementById('logging-canvas');
+        if (loggingCanvas) {
+            loggingCanvas.style.display = 'none';
         }
-    }
-    const ContainerAntenna = document.getElementById('Antenna');
-    if (ContainerAntenna) {
-        ContainerAntenna.style.display = 'none';
-    }
-    ScanButton();
+        const loggingCanvasButtons = document.querySelector('.download-buttons-container');
+        if (loggingCanvasButtons) {
+            loggingCanvasButtons.style.display = 'none';
+        }
+        const ContainerRotator = document.getElementById('containerRotator');
+        if (ContainerRotator) {
+            if (hideContainerRotator) {
+                ContainerRotator.style.display = 'none';
+                canvasFullWidthOffset = 0;
+            } else {
+                canvasFullWidthOffset = 204;
+                const style = document.createElement('style');
+                style.textContent = `
+                    #sdr-graph {
+                        width: 82%;
+                        margin-left: 200px;
+                        margin-top: 0px;
+                    }
+                `;
+                document.head.appendChild(style);
+                resizeCanvas();
+            }
+        }
+        const ContainerAntenna = document.getElementById('Antenna');
+        if (ContainerAntenna) {
+            ContainerAntenna.style.display = 'none';
+        }
+        ScanButton();
+    }, 40);
 }
 
 // Adjust dataCanvas height based on window height
