@@ -74,7 +74,7 @@ localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoB
 // Create Spectrum Graph button
 function createButton(buttonId) {
     (function waitForFunction() {
-        const maxWaitTime = 10000;
+        const maxWaitTime = 30000;
         let functionFound = false;
 
         const observer = new MutationObserver((mutationsList, observer) => {
@@ -91,13 +91,7 @@ function createButton(buttonId) {
                                 // Code to execute on click
                                 toggleSpectrum();
                             });
-                        }, 40);
-                        // Additional code
-                        const pluginButton = document.getElementById('spectrum-graph-button');
-                        if (pluginButton) {
-                            pluginButton.classList.remove('active');
-                            pluginButton.disabled = true; // Enabled in displaySignalCanvas()
-                        }
+                        }, 200);
                         buttonObserver.disconnect(); // Stop observing once button is found
                     }
                 });
