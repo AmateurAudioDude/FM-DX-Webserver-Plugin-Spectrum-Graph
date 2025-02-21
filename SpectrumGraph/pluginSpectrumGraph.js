@@ -825,7 +825,7 @@ function displaySignalCanvas() {
             pluginButton.disabled = false;
         }, 400);
     } else {
-        console.warn(`${pluginName}: Resolution too low to display.`);
+        console.warn(`${pluginName}: Function 'addIconToPluginPanel' not found or resolution too low to display.`);
     }
 
     const sdrCanvas = document.getElementById('sdr-graph');
