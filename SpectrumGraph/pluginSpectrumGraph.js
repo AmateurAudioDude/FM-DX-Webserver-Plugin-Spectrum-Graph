@@ -921,7 +921,6 @@ function displaySdrGraph() {
         }, 400);
 
         const sdrCanvas = document.getElementById('sdr-graph');
-        let tmpCanvasHeight = sdrCanvas.height;
         if (sdrCanvas) {
             sdrCanvas.style.display = 'block';
             // Fade in effect
