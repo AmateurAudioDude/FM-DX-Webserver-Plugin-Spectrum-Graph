@@ -35,6 +35,10 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 ### Known issues
 * The plugin currently doesn't function if tuning is locked.
 
+v1.2.4
+------
+* Spectrum Graph matches canvas container size
+
 v1.2.3
 ------
 * Minor visual improvements and fixes
