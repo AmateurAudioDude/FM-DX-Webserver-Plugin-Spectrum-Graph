@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.3 by AAD
+    Spectrum Graph v1.2.4 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -34,6 +34,7 @@ let lastRestartTime = 0;
 let nowTime = Date.now();
 let isFirstRun = true;
 let isScanRunning = false;
+let hasLoggedUndefined = false;
 let frequencySocket = null;
 let sigArray = [];
 
@@ -79,7 +80,7 @@ customRouter();
 // Default configuration
 let rescanDelay = 3; // seconds
 let tuningRange = 0; // MHz
-let tuningStepSize = 100; // kHz
+let tuningStepSize = 50; // kHz
 let tuningBandwidth = 56; // kHz
 let warnIncompleteData = false; // Warn about incomplete data
 let logLocalCommands = true; // Log locally sent commands
@@ -87,7 +88,7 @@ let logLocalCommands = true; // Log locally sent commands
 const defaultConfig = {
     rescanDelay: 3,
     tuningRange: 0,
-    tuningStepSize: 100,
+    tuningStepSize: 50,
     tuningBandwidth: 56,
     warnIncompleteData: false,
     logLocalCommands: true
@@ -217,23 +218,30 @@ async function TextWebSocket(messageData) {
                         const messageData = JSON.parse(event.data);
                         // console.log(messageData);
 
-                        if (!isSerialportAlive || isSerialportRetrying) {
-                            if (textSocketLost) {
-                                clearTimeout(textSocketLost);
-                            }
-
-                            textSocketLost = setTimeout(() => {
-                                // WebSocket reconnection required after serialport connection loss
-                                logInfo(`${pluginName} connection lost, creating new WebSocket.`);
-                                if (textSocket) {
-                                    try {
-                                        textSocket.close(1000, 'Normal closure');
-                                    } catch (error) {
-                                        logInfo(`${pluginName} error closing WebSocket:`, error);
-                                    }
+                        if (typeof isSerialportAlive !== 'undefined' && typeof isSerialportRetrying !== 'undefined') {
+                            if (!isSerialportAlive || isSerialportRetrying) {
+                                if (textSocketLost) {
+                                    clearTimeout(textSocketLost);
                                 }
-                                textSocketLost = null;
-                            }, 10000);
+
+                                textSocketLost = setTimeout(() => {
+                                    // WebSocket reconnection required after serialport connection loss
+                                    logInfo(`${pluginName} connection lost, creating new WebSocket.`);
+                                    if (textSocket) {
+                                        try {
+                                            textSocket.close(1000, 'Normal closure');
+                                        } catch (error) {
+                                            logInfo(`${pluginName} error closing WebSocket:`, error);
+                                        }
+                                    }
+                                    textSocketLost = null;
+                                }, 10000);
+                            }
+                        } else {
+                            if (!hasLoggedUndefined) {
+                                logWarn(`${pluginName}: isSerialportAlive or isSerialportRetrying is not defined.`);
+                                hasLoggedUndefined = true;
+                            }
                         }
 
                     } catch (error) {

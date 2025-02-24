@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.3 by AAD
+    Spectrum Graph v1.2.4 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -17,7 +17,7 @@ const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pix
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.3';
+const pluginVersion = '1.2.4';
 
 // const variables
 const pluginName = "Spectrum Graph";
@@ -25,21 +25,24 @@ const debug = false;
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signal calibration
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
-const canvasHeightSmall = BORDERLESS_THEME ? 120 : 118;
-const canvasHeightLarge = BORDERLESS_THEME ? 176 : 172;
-const canvasFullHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
+const canvasWidthOffset = 2;
+const canvasHeightOffset = 2;
+const windowHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
 const topValue = BORDERLESS_THEME ? '12px' : '14px';
 
 // let variables
+let canvasFullWidth = 1160; // Initial value
+let canvasFullHeight = 140; // Initial value
+let canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
+let canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
+let hideContainerRotator = false; // Setting for PST Rotator plugin
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
-let isCanvasHovered = false; // Used for mouse scroll wheel
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
 let isGraphOpen = false;
 let isSpectrumOn = false;
 let currentAntenna = 0;
 let canvasFullWidthOffset = 0;
-let hideContainerRotator = false;
 let xOffset = 30;
 let outlinePoints = []; // Outline data for localStorage
 let outlinePointsSavePermission = false;
@@ -70,6 +73,20 @@ let ScannerLimiterOpacity = 0.2;
 localStorageItem.enableSmoothing = localStorage.getItem('enableSpectrumGraphSmoothing') === 'true';                 // Smooths the graph edges
 localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphFixedVerticalGraph') === 'true';     // Fixed/dynamic vertical graph based on peak signal
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
+
+function getCurrentDimensions() {
+    const signalCanvasDimensions = document.querySelector('.canvas-container');
+    if (signalCanvasDimensions) {
+        canvasFullWidth = signalCanvasDimensions.offsetWidth || 1160;
+        canvasFullHeight = signalCanvasDimensions.offsetHeight || 140;
+        canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
+        canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    getCurrentDimensions();
+});
 
 // Create Spectrum Graph button
 function createButton(buttonId) {
@@ -982,7 +999,7 @@ function adjustSdrGraphCanvasHeight() {
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches && window.innerWidth <= 480) {
         displaySignalCanvas(); // Ensure it doesn't appear in portrait mode
     } else {
-        if (window.innerHeight <= canvasFullHeight && window.innerWidth > 480) {
+        if (window.innerHeight <= windowHeight && window.innerWidth > 480) {
             canvas.height = canvasHeightSmall;
         } else {
             canvas.height = canvasHeightLarge;
@@ -1253,16 +1270,20 @@ canvas.id = 'sdr-graph';
 canvas.position = 'relative';
 
 function resizeCanvas() {
-    let fixedWidth = 1170 - canvasFullWidthOffset;
+    getCurrentDimensions();
+    let fixedWidth = (canvasFullWidth - canvasWidthOffset) - canvasFullWidthOffset;
     let paddingWidth = 10;
     if (window.innerWidth < fixedWidth + paddingWidth) canvas.width = window.innerWidth - paddingWidth; else canvas.width = fixedWidth;
     adjustSdrGraphCanvasHeight();
 }
-resizeCanvas();
+
+document.addEventListener('DOMContentLoaded', () => {
+    resizeCanvas();
+});
 
 window.addEventListener("resize", resizeCanvas);
 
-if (window.innerHeight <= canvasFullHeight && window.innerWidth > 480) {
+if (window.innerHeight <= windowHeight && window.innerWidth > 480) {
     canvas.height = canvasHeightSmall;
 } else {
     canvas.height = canvasHeightLarge;
