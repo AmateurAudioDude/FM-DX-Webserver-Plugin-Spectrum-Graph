@@ -35,7 +35,11 @@ let canvasFullWidth = 1160; // Initial value
 let canvasFullHeight = 140; // Initial value
 let canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
 let canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
+let drawAboveCanvas = false; // Draw above signal graph canvas (BETA)
 let hideContainerRotator = false; // Setting for PST Rotator plugin
+let drawAboveCanvasFirstRun = false;
+let drawAboveCanvasTimeout;
+let drawAboveCanvasOverridePosition = false;
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
@@ -81,6 +85,51 @@ function getCurrentDimensions() {
         canvasFullHeight = signalCanvasDimensions.offsetHeight || 140;
         canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
         canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
+    }
+
+    // Function to draw above canvas (BETA)
+    if (drawAboveCanvas && (isGraphOpen || !drawAboveCanvasFirstRun)) {
+        drawAboveCanvasFirstRun = true;
+        clearTimeout(drawAboveCanvasTimeout);
+        drawAboveCanvasTimeout = setTimeout(() => {
+            const panel1 = document.querySelector('.wrapper-outer.dashboard-panel');
+            const panel2 = document.querySelector('.wrapper-outer .canvas-container.hide-phone');
+            const panel1Rect = panel1.getBoundingClientRect();
+            const panel2Rect = panel2.getBoundingClientRect();
+            const verticalDistance = parseInt(Math.abs(panel1Rect.top - panel2Rect.top));
+            let styleElement = document.createElement('style');
+            if (parseInt(verticalDistance - 86) - canvasFullHeight > 0 && drawAboveCanvasOverridePosition !== true) {
+                drawAboveCanvasOverridePosition = true;
+                if (isGraphOpen) {
+                    toggleSpectrum();
+                    setTimeout(toggleSpectrum, 400);
+                }
+                styleElement.textContent = `
+                .canvas-container {
+                    overflow: visible;
+                }
+                #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button {
+                    margin-top: ${-canvasFullHeight - 2}px;
+                }
+                `;
+                document.head.appendChild(styleElement);
+            } else if (parseInt(verticalDistance - 86) - canvasFullHeight <= 0  && drawAboveCanvasOverridePosition !== false) {
+                drawAboveCanvasOverridePosition = false;
+                if (isGraphOpen) {
+                    toggleSpectrum();
+                    setTimeout(toggleSpectrum, 400);
+                }
+                styleElement.textContent = `
+                .canvas-container {
+                    overflow: hidden;
+                }
+                #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button {
+                    margin-top: 0;
+                }
+                `;
+                document.head.appendChild(styleElement);
+            }
+        }, 400);
     }
 }
 
@@ -949,14 +998,16 @@ function displaySdrGraph() {
             setTimeout(drawGraph, drawGraphDelay);
             const signalCanvas = document.getElementById('signal-canvas');
             if (signalCanvas) {
-                setTimeout(() => {
-                    signalCanvas.style.display = 'none';
-                }, 300);
-                // Fade effect
                 signalCanvas.style.position = 'absolute';
-                signalCanvas.style.opacity = 0;
-                signalCanvas.style.transition = 'opacity 0.4s ease-in-out, transform 0.5s ease-in-out';
-                signalCanvas.style.transform = 'scale(0.98)';
+                if (!drawAboveCanvasOverridePosition) {
+                    setTimeout(() => {
+                        signalCanvas.style.display = 'none';
+                    }, 300);
+                    // Fade effect
+                    signalCanvas.style.opacity = 0;
+                    signalCanvas.style.transition = 'opacity 0.4s ease-in-out, transform 0.5s ease-in-out';
+                    signalCanvas.style.transform = 'scale(0.98)';
+                }
             }
         }
         const loggingCanvas = document.getElementById('logging-canvas');
