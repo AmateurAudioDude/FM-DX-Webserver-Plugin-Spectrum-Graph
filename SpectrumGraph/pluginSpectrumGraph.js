@@ -37,9 +37,8 @@ let canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset
 let canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
 let drawAboveCanvas = false; // Draw above signal graph canvas (BETA)
 let hideContainerRotator = false; // Setting for PST Rotator plugin
-let drawAboveCanvasFirstRun = false;
-let drawAboveCanvasTimeout;
 let drawAboveCanvasOverridePosition = false;
+let drawAboveCanvasTimeout;
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
@@ -87,49 +86,66 @@ function getCurrentDimensions() {
         canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
     }
 
-    // Function to draw above canvas (BETA)
-    if (drawAboveCanvas && (isGraphOpen || !drawAboveCanvasFirstRun)) {
-        drawAboveCanvasFirstRun = true;
+    // Draw above canvas (BETA)
+    if (drawAboveCanvas) {
+        // Style elements
+        let styleCanvas = document.getElementById('style-canvas') || createStyleElement('style-canvas');
+        let styleSignalMeter = document.getElementById('style-signal-meter') || createStyleElement('style-signal-meter');
+
         clearTimeout(drawAboveCanvasTimeout);
         drawAboveCanvasTimeout = setTimeout(() => {
             const panel1 = document.querySelector('.wrapper-outer.dashboard-panel');
             const panel2 = document.querySelector('.wrapper-outer .canvas-container.hide-phone');
-            const panel1Rect = panel1.getBoundingClientRect();
-            const panel2Rect = panel2.getBoundingClientRect();
-            const verticalDistance = parseInt(Math.abs(panel1Rect.top - panel2Rect.top));
-            let styleElement = document.createElement('style');
-            if (parseInt(verticalDistance - 86) - canvasFullHeight > 0 && drawAboveCanvasOverridePosition !== true) {
-                drawAboveCanvasOverridePosition = true;
+
+            if (!panel1 || !panel2) return;
+
+            const newPosition = calculateNewCanvasPosition(panel1, panel2);
+            const newMargin = calculateSignalMeterMargin(panel1, panel2);
+
+            if (isGraphOpen && styleSignalMeter.textContent !== newMargin) {
+                styleSignalMeter.textContent = newMargin;
+            } else if (!isGraphOpen && styleSignalMeter.textContent !== `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`) {
+                styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+            }
+
+            if (newPosition !== drawAboveCanvasOverridePosition) {
+                drawAboveCanvasOverridePosition = newPosition;
+
                 if (isGraphOpen) {
                     toggleSpectrum();
                     setTimeout(toggleSpectrum, 400);
                 }
-                styleElement.textContent = `
-                .canvas-container {
-                    overflow: visible;
-                }
-                #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button {
-                    margin-top: ${-canvasFullHeight - 2}px;
-                }
+
+                const newCanvasStyle = `
+                    .canvas-container { overflow: ${newPosition ? 'visible' : 'hidden'}; }
+                    #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button {
+                        margin-top: ${newPosition ? -canvasFullHeight - 2 : 0}px;
+                    }
                 `;
-                document.head.appendChild(styleElement);
-            } else if (parseInt(verticalDistance - 86) - canvasFullHeight <= 0  && drawAboveCanvasOverridePosition !== false) {
-                drawAboveCanvasOverridePosition = false;
-                if (isGraphOpen) {
-                    toggleSpectrum();
-                    setTimeout(toggleSpectrum, 400);
+                if (styleCanvas.textContent !== newCanvasStyle) {
+                    styleCanvas.textContent = newCanvasStyle;
                 }
-                styleElement.textContent = `
-                .canvas-container {
-                    overflow: hidden;
-                }
-                #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button {
-                    margin-top: 0;
-                }
-                `;
-                document.head.appendChild(styleElement);
             }
         }, 400);
+
+        function createStyleElement(id) {
+            let style = document.createElement('style');
+            style.id = id;
+            document.head.appendChild(style);
+            return style;
+        }
+
+        function calculateSignalMeterMargin(panel1, panel2) {
+            const verticalDistance = Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top);
+            return (verticalDistance - 86) - canvasFullHeight > 0
+                ? `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: ${-canvasFullHeight - 2}px !important; }`
+                : `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+        }
+
+        function calculateNewCanvasPosition(panel1, panel2) {
+            const verticalDistance = Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top);
+            return (verticalDistance - 86) - canvasFullHeight > 0;
+        }
     }
 }
 
@@ -155,6 +171,7 @@ function createButton(buttonId) {
                         setTimeout(() => {
                             $pluginButton.on('click', function() {
                                 // Code to execute on click
+                                if (drawAboveCanvasOverridePosition) getCurrentDimensions();
                                 toggleSpectrum();
                             });
                         }, 400);
