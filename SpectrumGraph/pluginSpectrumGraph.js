@@ -5,7 +5,7 @@
 
 (() => {
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const CHECK_FOR_UPDATES = true;                 // Checks online if a new version is available
 const BORDERLESS_THEME = true;                  // Background and text colours match FM-DX Webserver theme
@@ -13,9 +13,10 @@ const ENABLE_MOUSE_CLICK_TO_TUNE = true;        // Allow the mouse to tune insid
 const ENABLE_MOUSE_SCROLL_WHEEL = true;         // Allow the mouse scroll wheel to tune inside the graph
 const DECIMAL_MARKER_ROUND_OFF = true;          // Round frequency markers to the nearest integer
 const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/relative or clamp outline
+const ALLOW_ABOVE_CANVAS = false;               // Displays a button to display above signal graph if there is room
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const pluginVersion = '1.2.4';
 
@@ -35,10 +36,13 @@ let canvasFullWidth = 1160; // Initial value
 let canvasFullHeight = 140; // Initial value
 let canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
 let canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
-let drawAboveCanvas = false; // Draw above signal graph canvas (BETA)
 let hideContainerRotator = false; // Setting for PST Rotator plugin
+let drawAboveCanvasIsPossible = false;
 let drawAboveCanvasOverridePosition = false;
+let drawAboveCanvasPreviousStatus = false;
 let drawAboveCanvasTimeout;
+let drawAboveCanvasTimeoutSignalMeter;
+let drawAboveCanvasTimeoutStyle;
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
@@ -76,6 +80,7 @@ let ScannerLimiterOpacity = 0.2;
 localStorageItem.enableSmoothing = localStorage.getItem('enableSpectrumGraphSmoothing') === 'true';                 // Smooths the graph edges
 localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphFixedVerticalGraph') === 'true';     // Fixed/dynamic vertical graph based on peak signal
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
+localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';          // Move above signal graph canvas
 
 function getCurrentDimensions() {
     const signalCanvasDimensions = document.querySelector('.canvas-container');
@@ -85,68 +90,118 @@ function getCurrentDimensions() {
         canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
         canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
     }
+    if (ALLOW_ABOVE_CANVAS) isDrawAboveCanvas();
+}
 
-    // Draw above canvas (BETA)
-    if (drawAboveCanvas) {
-        // Style elements
-        let styleCanvas = document.getElementById('style-canvas') || createStyleElement('style-canvas');
-        let styleSignalMeter = document.getElementById('style-signal-meter') || createStyleElement('style-signal-meter');
+// Function to draw above canvas (BETA)
+function isDrawAboveCanvas() {
+    // Style elements
+    let styleCanvas = document.getElementById('style-canvas') || createStyleElement('style-canvas');
+    let styleSignalMeter = document.getElementById('style-signal-meter') || createStyleElement('style-signal-meter');
 
-        clearTimeout(drawAboveCanvasTimeout);
-        drawAboveCanvasTimeout = setTimeout(() => {
-            const panel1 = document.querySelector('.wrapper-outer.dashboard-panel');
-            const panel2 = document.querySelector('.wrapper-outer .canvas-container.hide-phone');
+    const panel1 = document.querySelector('.wrapper-outer.dashboard-panel');
+    const panel2 = document.querySelector('.wrapper-outer .canvas-container.hide-phone');
 
-            if (!panel1 || !panel2) return;
+    if (!panel1 || !panel2) return;
 
-            const newPosition = calculateNewCanvasPosition(panel1, panel2);
-            const newMargin = calculateSignalMeterMargin(panel1, panel2);
+    const newPosition = calculateNewCanvasPosition(panel1, panel2);
+    const newMargin = calculateSignalMeterMargin(panel1, panel2);
 
-            if (isGraphOpen && styleSignalMeter.textContent !== newMargin) {
-                styleSignalMeter.textContent = newMargin;
-            } else if (!isGraphOpen && styleSignalMeter.textContent !== `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`) {
-                styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
-            }
+    if (newPosition !== drawAboveCanvasOverridePosition) {
+        drawAboveCanvasOverridePosition = newPosition;
 
-            if (newPosition !== drawAboveCanvasOverridePosition) {
-                drawAboveCanvasOverridePosition = newPosition;
-
-                if (isGraphOpen) {
+        // Toggle button twice
+        if (isGraphOpen) {
+            toggleSpectrum();
+            clearTimeout(drawAboveCanvasTimeout);
+            drawAboveCanvasTimeout = setTimeout(() => {
+                setTimeout(() => {
                     toggleSpectrum();
-                    setTimeout(toggleSpectrum, 400);
-                }
+                }, 40);
+            }, 400);
+        }
 
-                const newCanvasStyle = `
-                    .canvas-container { overflow: ${newPosition ? 'visible' : 'hidden'}; }
-                    #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button {
-                        margin-top: ${newPosition ? -canvasFullHeight - 2 : 0}px;
-                    }
-                `;
-                if (styleCanvas.textContent !== newCanvasStyle) {
-                    styleCanvas.textContent = newCanvasStyle;
-                }
+        const newCanvasStyle = `
+            .canvas-container { overflow: ${newPosition ? 'visible' : 'hidden'}; }
+            #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button, #draw-above-canvas {
+                margin-top: ${newPosition ? -canvasFullHeight - 2 : 0}px;
+            }
+        `;
+        clearTimeout(drawAboveCanvasTimeoutStyle);
+        drawAboveCanvasTimeoutStyle = setTimeout(() => {
+            if (styleCanvas.textContent !== newCanvasStyle) {
+                styleCanvas.textContent = newCanvasStyle;
             }
         }, 400);
-
-        function createStyleElement(id) {
-            let style = document.createElement('style');
-            style.id = id;
-            document.head.appendChild(style);
-            return style;
-        }
-
-        function calculateSignalMeterMargin(panel1, panel2) {
-            const verticalDistance = Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top);
-            return (verticalDistance - 86) - canvasFullHeight > 0
-                ? `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: ${-canvasFullHeight - 2}px !important; }`
-                : `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
-        }
-
-        function calculateNewCanvasPosition(panel1, panel2) {
-            const verticalDistance = Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top);
-            return (verticalDistance - 86) - canvasFullHeight > 0;
-        }
     }
+
+    if (drawAboveCanvasPreviousStatus !== drawAboveCanvasIsPossible && isGraphOpen) ScanButton();
+
+    function createStyleElement(id) {
+        let style = document.createElement('style');
+        style.id = id;
+        document.head.appendChild(style);
+        return style;
+    }
+
+    function calculateNewCanvasPosition(panel1, panel2) {
+        const availableDistance = parseInt(Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top));
+        drawAboveCanvasPreviousStatus = drawAboveCanvasIsPossible;
+        drawAboveCanvasIsPossible = (availableDistance - 86 - canvasFullHeight > 0); // Check if space is available for placing graph above signal graph canvas
+        return (availableDistance - 86) - canvasFullHeight > 0 && localStorageItem.isAboveSignalCanvas === true;
+    }
+
+    function calculateSignalMeterMargin(panel1, panel2) {
+        const availableDistance = Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top);
+        return (availableDistance - 86) - canvasFullHeight > 0 && localStorageItem.isAboveSignalCanvas === true
+            ? `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: ${-canvasFullHeight - 2}px !important; }`
+            : `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+    }
+
+    function visibilitySignalMeter(display) {
+        // Signal meter plugin visibiliy
+        let styleElement = document.createElement('style');
+        styleElement.textContent = `
+        #signal-meter-small-canvas, #signal-meter-small-marker-canvas {
+            display: ${display} !important;
+        }
+        `;
+        document.head.appendChild(styleElement);
+    }
+
+    visibilitySignalMeter('none');
+
+    clearTimeout(drawAboveCanvasTimeoutSignalMeter);
+    drawAboveCanvasTimeoutSignalMeter = setTimeout(() => {
+        visibilitySignalMeter('inline');
+
+        if (localStorageItem.isAboveSignalCanvas === true) {
+            styleSignalMeter.textContent = newMargin;
+        } else if (styleSignalMeter.textContent !== `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`) {
+            styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+        }
+
+        if (localStorageItem.isAboveSignalCanvas === false || !isGraphOpen) styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+    }, 800);
+}
+
+// Move RDS-Logger plugin if ALLOW_ABOVE_CANVAS enabled
+if (ALLOW_ABOVE_CANVAS) {
+    document.addEventListener('DOMContentLoaded', function() {
+        const loggingCanvas = document.getElementById('logging-canvas');
+        const sdrGraph = document.getElementById('sdr-graph');
+        const downloadButtonsContainer = document.querySelector('.download-buttons-container');
+
+        if (loggingCanvas && sdrGraph && downloadButtonsContainer) {
+            if (loggingCanvas.compareDocumentPosition(sdrGraph) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                sdrGraph.parentNode.insertBefore(loggingCanvas, sdrGraph.nextSibling);
+            }
+            
+            if (downloadButtonsContainer.compareDocumentPosition(loggingCanvas) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                loggingCanvas.parentNode.insertBefore(downloadButtonsContainer, loggingCanvas.nextSibling);
+            }
+        }
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -582,6 +637,18 @@ function ScanButton() {
     ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96');
     ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136');
     ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176');
+    if (drawAboveCanvasIsPossible) {
+    ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph',  drawAboveCanvasOverridePosition ? 'turn-down' : 'turn-up',       'isAboveSignalCanvas',  'AboveSignalCanvas',            '216');
+        const drawAboveSignalCanvasButton = document.getElementById('draw-above-canvas');
+        drawAboveSignalCanvasButton.addEventListener('click', function() {
+          getCurrentDimensions();
+        });
+    } else {
+        const sdrCanvasDrawAboveCanvas = document.getElementById('draw-above-canvas');
+        if (sdrCanvasDrawAboveCanvas) {
+            sdrCanvasDrawAboveCanvas.style.display = 'none';
+        }
+    }
     if (typeof initTooltips === 'function') initTooltips();
     if (updateText) insertUpdateText(updateText);
 
@@ -591,6 +658,7 @@ function ScanButton() {
     applyFadeEffect('smoothing-on-off-button', 0, 0.96);
     applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
     applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
+    applyFadeEffect('draw-above-canvas', 0, 0.96);
 
     setTimeout(() => {
         // Fade in effect for buttons
@@ -599,6 +667,7 @@ function ScanButton() {
         applyFadeEffect('smoothing-on-off-button', 0.8, 1);
         applyFadeEffect('fixed-dynamic-on-off-button', 0.8, 1);
         applyFadeEffect('auto-baseline-on-off-button', 0.8, 1);
+        applyFadeEffect('draw-above-canvas', 0.8, 1);
     }, 40);
 }
 
@@ -931,6 +1000,7 @@ function displaySignalCanvas() {
         applyFadeEffect('smoothing-on-off-button', 0, 0.96);
         applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
         applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
+        applyFadeEffect('draw-above-canvas', 0, 0.96);
     }, 10);
 
     setTimeout(() => {
@@ -953,6 +1023,10 @@ function displaySignalCanvas() {
         const sdrCanvasAutoBaselineButton = document.getElementById('auto-baseline-on-off-button');
         if (sdrCanvasAutoBaselineButton) {
             sdrCanvasAutoBaselineButton.style.display = 'none';
+        }
+        const sdrCanvasDrawAboveCanvas = document.getElementById('draw-above-canvas');
+        if (sdrCanvasDrawAboveCanvas) {
+            sdrCanvasDrawAboveCanvas.style.display = 'none';
         }
         const sdrCanvasUpdateText = document.querySelector('.spectrum-graph-update-text');
         if (sdrCanvasUpdateText) {
@@ -1251,7 +1325,7 @@ function initializeCanvasInteractions() {
             }
 
             tooltip.style.left = `${tooltipX}px`;
-            tooltip.style.top = `${tooltipY - 30}px`;
+            tooltip.style.top = `${(tooltipY - 30) - (drawAboveCanvasOverridePosition ? canvasFullHeight : 0)}px`;
             tooltip.style.visibility = 'visible';
         }
     }
