@@ -5,7 +5,7 @@
 
 (() => {
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const CHECK_FOR_UPDATES = true;                 // Checks online if a new version is available
 const BORDERLESS_THEME = true;                  // Background and text colours match FM-DX Webserver theme
@@ -16,7 +16,7 @@ const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/
 const ALLOW_ABOVE_CANVAS = false;               // Displays a button to display above signal graph if there is room
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const pluginVersion = '1.2.4';
 
@@ -50,6 +50,7 @@ let isGraphOpen = false;
 let isSpectrumOn = false;
 let currentAntenna = 0;
 let canvasFullWidthOffset = 0;
+let prevCanvasHeight = canvasFullHeight;
 let xOffset = 30;
 let outlinePoints = []; // Outline data for localStorage
 let outlinePointsSavePermission = false;
@@ -81,132 +82,6 @@ localStorageItem.enableSmoothing = localStorage.getItem('enableSpectrumGraphSmoo
 localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphFixedVerticalGraph') === 'true';     // Fixed/dynamic vertical graph based on peak signal
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
 localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';          // Move above signal graph canvas
-
-function getCurrentDimensions() {
-    const signalCanvasDimensions = document.querySelector('.canvas-container');
-    if (signalCanvasDimensions) {
-        canvasFullWidth = signalCanvasDimensions.offsetWidth || 1160;
-        canvasFullHeight = signalCanvasDimensions.offsetHeight || 140;
-        canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
-        canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
-    }
-    if (ALLOW_ABOVE_CANVAS) isDrawAboveCanvas();
-}
-
-// Function to draw above canvas (BETA)
-function isDrawAboveCanvas() {
-    // Style elements
-    let styleCanvas = document.getElementById('style-canvas') || createStyleElement('style-canvas');
-    let styleSignalMeter = document.getElementById('style-signal-meter') || createStyleElement('style-signal-meter');
-
-    const panel1 = document.querySelector('.wrapper-outer.dashboard-panel');
-    const panel2 = document.querySelector('.wrapper-outer .canvas-container.hide-phone');
-
-    if (!panel1 || !panel2) return;
-
-    const newPosition = calculateNewCanvasPosition(panel1, panel2);
-    const newMargin = calculateSignalMeterMargin(panel1, panel2);
-
-    if (newPosition !== drawAboveCanvasOverridePosition) {
-        drawAboveCanvasOverridePosition = newPosition;
-
-        // Toggle button twice
-        if (isGraphOpen) {
-            toggleSpectrum();
-            clearTimeout(drawAboveCanvasTimeout);
-            drawAboveCanvasTimeout = setTimeout(() => {
-                setTimeout(() => {
-                    toggleSpectrum();
-                }, 40);
-            }, 400);
-        }
-
-        const newCanvasStyle = `
-            .canvas-container { overflow: ${newPosition ? 'visible' : 'hidden'}; }
-            #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button, #draw-above-canvas {
-                margin-top: ${newPosition ? -canvasFullHeight - 2 : 0}px;
-            }
-        `;
-        clearTimeout(drawAboveCanvasTimeoutStyle);
-        drawAboveCanvasTimeoutStyle = setTimeout(() => {
-            if (styleCanvas.textContent !== newCanvasStyle) {
-                styleCanvas.textContent = newCanvasStyle;
-            }
-        }, 400);
-    }
-
-    if (drawAboveCanvasPreviousStatus !== drawAboveCanvasIsPossible && isGraphOpen) ScanButton();
-
-    function createStyleElement(id) {
-        let style = document.createElement('style');
-        style.id = id;
-        document.head.appendChild(style);
-        return style;
-    }
-
-    function calculateNewCanvasPosition(panel1, panel2) {
-        const availableDistance = parseInt(Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top));
-        drawAboveCanvasPreviousStatus = drawAboveCanvasIsPossible;
-        drawAboveCanvasIsPossible = (availableDistance - 86 - canvasFullHeight > 0); // Check if space is available for placing graph above signal graph canvas
-        return (availableDistance - 86) - canvasFullHeight > 0 && localStorageItem.isAboveSignalCanvas === true;
-    }
-
-    function calculateSignalMeterMargin(panel1, panel2) {
-        const availableDistance = Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top);
-        return (availableDistance - 86) - canvasFullHeight > 0 && localStorageItem.isAboveSignalCanvas === true
-            ? `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: ${-canvasFullHeight - 2}px !important; }`
-            : `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
-    }
-
-    function visibilitySignalMeter(display) {
-        // Signal meter plugin visibiliy
-        let styleElement = document.createElement('style');
-        styleElement.textContent = `
-        #signal-meter-small-canvas, #signal-meter-small-marker-canvas {
-            display: ${display} !important;
-        }
-        `;
-        document.head.appendChild(styleElement);
-    }
-
-    visibilitySignalMeter('none');
-
-    clearTimeout(drawAboveCanvasTimeoutSignalMeter);
-    drawAboveCanvasTimeoutSignalMeter = setTimeout(() => {
-        visibilitySignalMeter('inline');
-
-        if (localStorageItem.isAboveSignalCanvas === true) {
-            styleSignalMeter.textContent = newMargin;
-        } else if (styleSignalMeter.textContent !== `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`) {
-            styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
-        }
-
-        if (localStorageItem.isAboveSignalCanvas === false || !isGraphOpen) styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
-    }, 800);
-}
-
-// Move RDS-Logger plugin if ALLOW_ABOVE_CANVAS enabled
-if (ALLOW_ABOVE_CANVAS) {
-    document.addEventListener('DOMContentLoaded', function() {
-        const loggingCanvas = document.getElementById('logging-canvas');
-        const sdrGraph = document.getElementById('sdr-graph');
-        const downloadButtonsContainer = document.querySelector('.download-buttons-container');
-
-        if (loggingCanvas && sdrGraph && downloadButtonsContainer) {
-            if (loggingCanvas.compareDocumentPosition(sdrGraph) & Node.DOCUMENT_POSITION_FOLLOWING) {
-                sdrGraph.parentNode.insertBefore(loggingCanvas, sdrGraph.nextSibling);
-            }
-            
-            if (downloadButtonsContainer.compareDocumentPosition(loggingCanvas) & Node.DOCUMENT_POSITION_FOLLOWING) {
-                loggingCanvas.parentNode.insertBefore(downloadButtonsContainer, loggingCanvas.nextSibling);
-            }
-        }
-    });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    getCurrentDimensions();
-});
 
 // Create Spectrum Graph button
 function createButton(buttonId) {
@@ -243,7 +118,7 @@ function createButton(buttonId) {
         setTimeout(() => {
             observer.disconnect();
             if (!functionFound) {
-                console.error(`Function addIconToPluginPanel not found after ${maxWaitTime / 1000} seconds.`);
+                console.error(`${pluginName}: Function addIconToPluginPanel not found after ${maxWaitTime / 1000} seconds.`);
             }
         }, maxWaitTime);
     })();
@@ -348,6 +223,156 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
     });
 }
 
+function getCurrentDimensions() {
+    const signalCanvasDimensions = document.querySelector('.canvas-container');
+    if (signalCanvasDimensions) {
+        canvasFullWidth = signalCanvasDimensions.offsetWidth || 1160;
+        canvasFullHeight = signalCanvasDimensions.offsetHeight || 140;
+        canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
+        canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset;
+    }
+
+    prevCanvasHeight = canvasFullHeight;
+
+    if (ALLOW_ABOVE_CANVAS) isDrawAboveCanvas();
+}
+
+// Function to draw above canvas (BETA)
+function isDrawAboveCanvas() {
+    // Style elements
+    let styleCanvas = document.getElementById('style-canvas') || createStyleElement('style-canvas');
+    let styleSignalMeter = document.getElementById('style-signal-meter') || createStyleElement('style-signal-meter');
+
+    const panel1 = document.querySelector('.wrapper-outer.dashboard-panel');
+    const panel2 = document.querySelector('.wrapper-outer .canvas-container.hide-phone');
+
+    if (!panel1 || !panel2) return;
+
+    const newPosition = calculateNewCanvasPosition(panel1, panel2);
+    const newMargin = calculateSignalMeterMargin(panel1, panel2);
+
+    if (newPosition !== drawAboveCanvasOverridePosition) {
+        drawAboveCanvasOverridePosition = newPosition;
+
+        // Toggle button twice
+        if (isGraphOpen) {
+            toggleSpectrum();
+            clearTimeout(drawAboveCanvasTimeout);
+            drawAboveCanvasTimeout = setTimeout(() => {
+                setTimeout(() => {
+                    toggleSpectrum();
+                }, 40);
+            }, 400);
+        }
+
+        const newCanvasStyle = `
+            .canvas-container { overflow: ${newPosition ? 'visible' : 'hidden'}; }
+            #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button, #draw-above-canvas {
+                margin-top: ${newPosition ? -canvasFullHeight - 2 : 0}px;
+            }
+        `;
+        clearTimeout(drawAboveCanvasTimeoutStyle);
+        drawAboveCanvasTimeoutStyle = setTimeout(() => {
+            if (styleCanvas.textContent !== newCanvasStyle) {
+                styleCanvas.textContent = newCanvasStyle;
+            }
+        }, 400);
+    }
+
+    if (drawAboveCanvasPreviousStatus !== drawAboveCanvasIsPossible && isGraphOpen) ScanButton();
+
+    function createStyleElement(id) {
+        let style = document.createElement('style');
+        style.id = id;
+        document.head.appendChild(style);
+        return style;
+    }
+
+    function calculateNewCanvasPosition(panel1, panel2) {
+        const availableDistance = parseInt(Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top));
+        drawAboveCanvasPreviousStatus = drawAboveCanvasIsPossible;
+        drawAboveCanvasIsPossible = (availableDistance - 86 - canvasFullHeight > 0); // Check if space is available for placing graph above signal graph canvas
+        return (availableDistance - 86) - canvasFullHeight > 0 && localStorageItem.isAboveSignalCanvas === true;
+    }
+
+    function calculateSignalMeterMargin(panel1, panel2) {
+        const availableDistance = Math.abs(panel1.getBoundingClientRect().top - panel2.getBoundingClientRect().top);
+        return (availableDistance - 86) - canvasFullHeight > 0 && localStorageItem.isAboveSignalCanvas === true
+            ? `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: ${-canvasFullHeight - 2}px !important; }`
+            : `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+    }
+
+    function visibilitySignalMeter(display) {
+        // Signal meter plugin visibiliy
+        let styleElement = document.createElement('style');
+        styleElement.textContent = `
+        #signal-meter-small-canvas, #signal-meter-small-marker-canvas {
+            display: ${display} !important;
+        }
+        `;
+        document.head.appendChild(styleElement);
+    }
+
+    visibilitySignalMeter('none');
+
+    clearTimeout(drawAboveCanvasTimeoutSignalMeter);
+    drawAboveCanvasTimeoutSignalMeter = setTimeout(() => {
+        visibilitySignalMeter('inline');
+
+        if (localStorageItem.isAboveSignalCanvas === true) {
+            styleSignalMeter.textContent = newMargin;
+        } else if (styleSignalMeter.textContent !== `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`) {
+            styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+        }
+
+        if (localStorageItem.isAboveSignalCanvas === false || !isGraphOpen) styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
+    }, 800);
+}
+
+function monitorCanvasHeight() {
+    const targetNode = document.querySelector('.wrapper-outer .canvas-container canvas');
+    const config = { attributes: true, attributeFilter: ['style'], childList: false, subtree: false };
+    const callback = (mutationsList, observer) => {
+        for (let mutation of mutationsList) {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'style' && targetNode.height !== prevCanvasHeight) {
+                // Check if height has changed (targetNode.offsetHeight)
+                setTimeout(() => {
+                    resizeCanvas();
+                    prevCanvasHeight = targetNode.height;
+                }, 100);
+            }
+        }
+    };
+
+    const observer = new MutationObserver(callback);
+    observer.observe(targetNode, config);
+}
+
+setTimeout(monitorCanvasHeight, 2000);
+
+// Move RDS-Logger plugin if ALLOW_ABOVE_CANVAS enabled
+if (ALLOW_ABOVE_CANVAS) {
+    document.addEventListener('DOMContentLoaded', function() {
+        const loggingCanvas = document.getElementById('logging-canvas');
+        const sdrGraph = document.getElementById('sdr-graph');
+        const downloadButtonsContainer = document.querySelector('.download-buttons-container');
+
+        if (loggingCanvas && sdrGraph && downloadButtonsContainer) {
+            if (loggingCanvas.compareDocumentPosition(sdrGraph) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                sdrGraph.parentNode.insertBefore(loggingCanvas, sdrGraph.nextSibling);
+            }
+            
+            if (downloadButtonsContainer.compareDocumentPosition(loggingCanvas) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                loggingCanvas.parentNode.insertBefore(downloadButtonsContainer, loggingCanvas.nextSibling);
+            }
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    getCurrentDimensions();
+});
+
 // Create the WebSocket connection
 const currentURL = new URL(window.location.href);
 const WebserverURL = currentURL.hostname;
@@ -409,7 +434,7 @@ async function setupSendSocket() {
                                     console.log(`freq: ${item.freq}, sig: ${item.sig}`);
                                 });
                             } else {
-                                console.error('Expected array for sigArray, but received:', data.value);
+                                console.error(`${pluginName} expected array for sigArray, but received:`, data.value);
                             }
                         }
                         getCurrentAntenna();
@@ -463,7 +488,7 @@ async function setupSendSocket() {
                 setTimeout(setupSendSocket, 5000); // Reconnect after 5 seconds
             };
         } catch (error) {
-            console.error("Failed to setup Send WebSocket:", error);
+            console.error(`${pluginName} failed to setup Send WebSocket:`, error);
             setTimeout(setupSendSocket, 5000); // Retry after 5 seconds
         }
     }
@@ -535,6 +560,7 @@ function signalUnits() {
     }
     prevSignalText = signalText;
 }
+
 setInterval(signalUnits, 3000);
 
 // Function to apply fade effect and transition styles
@@ -552,6 +578,17 @@ function ScanButton() {
     // Remove any existing instances of button
     const existingButtons = document.querySelectorAll('.rectangular-spectrum-button');
     existingButtons.forEach(button => button.remove());
+
+    const existingButtonContainer = document.querySelectorAll('.sdr-graph-button-container-main');
+    existingButtonContainer.forEach(button => button.remove());
+
+    // Create div that will contain the buttons
+    const buttonContainer = document.createElement('div');
+    const sdrGraph = document.querySelector('.canvas-container');
+    buttonContainer.id = 'sdr-graph-button-container';
+    buttonContainer.classList.add('sdr-graph-button-container-main');
+    buttonContainer.style.opacity = '1';
+    if (sdrGraph) sdrGraph.appendChild(buttonContainer);
 
     // Create new button for controlling spectrum
     const spectrumButton = document.createElement('button');
@@ -588,19 +625,32 @@ function ScanButton() {
         });
     }
 
-    // Locate canvas and its parent container
-    const canvas = document.getElementById('sdr-graph');
-    if (canvas) {
-        const canvasContainer = canvas.parentElement;
+    // Set container position to relative
+    const canvasSdrGraph = document.getElementById('sdr-graph');
+    if (canvasSdrGraph) {
+        const canvasContainer = canvasSdrGraph.parentElement;
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
+            canvasContainer.style.position = 'relative';
+        } else {
+            console.error(`${pluginName}: Parent container is not .canvas-container`);
+        }
+    } else {
+        console.error(`${pluginName}: #sdr-graph not found`);
+    }
+
+    // Locate canvas and its parent container
+    const canvas = document.getElementById('sdr-graph-button-container');
+    if (canvas) {
+        const canvasContainer = canvas;
+        if (canvasContainer && canvasContainer.classList.contains('sdr-graph-button-container-main')) {
             canvasContainer.style.position = 'relative';
             canvas.style.cursor = 'crosshair';
             canvasContainer.appendChild(spectrumButton);
         } else {
-            console.error('Parent container is not .canvas-container');
+            console.error(`${pluginName}: Parent container for button not found`);
         }
     } else {
-        console.error('#sdr-graph not found');
+        console.error(`${pluginName}: #sdr-graph-button-container not found`);
     }
 
     // Add styles
@@ -609,7 +659,6 @@ function ScanButton() {
         position: absolute;
         top: ${topValue};
         right: 16px;
-        z-index: 10;
         opacity: 0.8;
         border-radius: 5px;
         padding: 5px 10px;
@@ -669,6 +718,23 @@ function ScanButton() {
         applyFadeEffect('auto-baseline-on-off-button', 0.8, 1);
         applyFadeEffect('draw-above-canvas', 0.8, 1);
     }, 40);
+
+    // Fade all buttons on canvas hover
+    const sdrGraphCSS = document.querySelector('.canvas-container');
+    const sdrGraphButtonContainer = document.getElementById('sdr-graph-button-container');
+
+    sdrGraphButtonContainer.style.opacity = 0.6;
+    sdrGraphButtonContainer.style.transition = 'opacity 0.5s ease';
+
+    sdrGraphCSS.addEventListener('mouseover', () => {
+      sdrGraphButtonContainer.style.transition = 'opacity 0.5s ease';
+      sdrGraphButtonContainer.style.opacity = 1;
+    });
+
+    sdrGraphCSS.addEventListener('mouseout', () => {
+      sdrGraphButtonContainer.style.transition = 'opacity 1s ease 3s';
+      sdrGraphButtonContainer.style.opacity = 0.6;
+    });
 }
 
 // Create button
@@ -710,12 +776,12 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     });
 
     // Locate the canvas and its parent container
-    const canvas = document.getElementById('sdr-graph');
+    const canvas = document.getElementById('sdr-graph-button-container');
     if (canvas) {
         canvas.style.backdropFilter = `blur(${BACKGROUND_BLUR_PIXELS}px)`;
         canvas.style.borderRadius = '8px';
-        const canvasContainer = canvas.parentElement;
-        if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
+        const canvasContainer = canvas;
+        if (canvasContainer && canvasContainer.classList.contains('sdr-graph-button-container-main')) {
             canvasContainer.style.position = 'relative';
             canvasContainer.appendChild(toggleButton);
 
@@ -737,7 +803,6 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
         position: absolute;
         top: ${topValue};
         right: ${ButtonPosition}px;
-        z-index: 10;
         opacity: 0.8;
         border-radius: 5px;
         padding: 5px 10px;
@@ -898,7 +963,7 @@ async function initializeGraph() {
                         console.log(`freq: ${item.freq}, sig: ${item.sig}`);
                     });
                 } else {
-                    console.error('Expected array for sigArray, but received:', sigArray);
+                    console.error(`${pluginName} expected array for sigArray, but received:`, sigArray);
                 }
             }
         } else {
@@ -959,7 +1024,7 @@ async function getCurrentAntenna() {
                 if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
             })
             .catch(error => {
-                console.error('Error fetching api data:', error);
+                console.error(`${pluginName} error fetching api data:`, error);
             });
     } catch (error) {
         console.error(`${pluginName} error fetching current antenna:`, error);
@@ -1004,6 +1069,10 @@ function displaySignalCanvas() {
     }, 10);
 
     setTimeout(() => {
+        const sdrCanvasButtonContainer = document.getElementById('sdr-graph-button-container');
+        if (sdrCanvasButtonContainer) {
+            sdrCanvasButtonContainer.style.display = 'none';
+        }
         const sdrCanvasScanButton = document.getElementById('spectrum-scan-button');
         if (sdrCanvasScanButton) {
             sdrCanvasScanButton.style.display = 'none';
