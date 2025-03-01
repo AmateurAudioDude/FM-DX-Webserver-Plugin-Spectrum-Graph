@@ -723,7 +723,7 @@ function ScanButton() {
     const sdrGraphCSS = document.querySelector('.canvas-container');
     const sdrGraphButtonContainer = document.getElementById('sdr-graph-button-container');
 
-    sdrGraphButtonContainer.style.opacity = 0.6;
+    sdrGraphButtonContainer.style.opacity = 0.8;
     sdrGraphButtonContainer.style.transition = 'opacity 0.5s ease';
 
     sdrGraphCSS.addEventListener('mouseover', () => {
@@ -733,7 +733,7 @@ function ScanButton() {
 
     sdrGraphCSS.addEventListener('mouseout', () => {
       sdrGraphButtonContainer.style.transition = 'opacity 1s ease 3s';
-      sdrGraphButtonContainer.style.opacity = 0.6;
+      sdrGraphButtonContainer.style.opacity = 0.8;
     });
 }
 
