@@ -1528,7 +1528,7 @@ $(window).on('load', function() {
 
 // Draw graph
 function drawGraph() {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const width = canvas.width;
     const height = canvas.height;
 
