@@ -106,6 +106,11 @@ function createButton(buttonId) {
                             });
                         }, 400);
                         buttonObserver.disconnect(); // Stop observing once button is found
+                        // Additional code
+                        const pluginButton = document.getElementById(`${buttonId}`);
+                        if (pluginButton && window.innerWidth < 480 && window.innerHeight > window.innerWidth) {
+                            pluginButton.setAttribute('data-tooltip', 'Resolution too low to display');
+                        }
                     }
                 });
 
