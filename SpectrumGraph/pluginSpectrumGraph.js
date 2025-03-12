@@ -67,6 +67,7 @@ let buttonTimeout;
 let removeUpdateTextTimeout;
 let updateText;
 let wsSendSocket;
+let signalMeterDelay = 0;
 
 // let variables (Scanner plugin code by Highpoint)
 let ScannerIsScanning = false;
@@ -101,7 +102,10 @@ function createButton(buttonId) {
                         setTimeout(() => {
                             $pluginButton.on('click', function() {
                                 // Code to execute on click
-                                if (drawAboveCanvasOverridePosition) getCurrentDimensions();
+                                if (drawAboveCanvasOverridePosition) {
+                                    signalMeterDelay = 800;
+                                    getCurrentDimensions();
+                                }
                                 toggleSpectrum();
                             });
                         }, 400);
@@ -261,6 +265,7 @@ function isDrawAboveCanvas() {
 
         // Toggle button twice
         if (isGraphOpen) {
+            signalMeterDelay = 800;
             toggleSpectrum();
             clearTimeout(drawAboveCanvasTimeout);
             drawAboveCanvasTimeout = setTimeout(() => {
@@ -331,7 +336,8 @@ function isDrawAboveCanvas() {
         }
 
         if (localStorageItem.isAboveSignalCanvas === false || !isGraphOpen) styleSignalMeter.textContent = `#signal-meter-small-canvas, #signal-meter-small-marker-canvas { margin-top: 4px !important; }`;
-    }, 800);
+        signalMeterDelay = 0;
+    }, signalMeterDelay);
 }
 
 function monitorCanvasHeight() {
@@ -695,7 +701,8 @@ function ScanButton() {
     ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph',  drawAboveCanvasOverridePosition ? 'turn-down' : 'turn-up',       'isAboveSignalCanvas',  'AboveSignalCanvas',            '216');
         const drawAboveSignalCanvasButton = document.getElementById('draw-above-canvas');
         drawAboveSignalCanvasButton.addEventListener('click', function() {
-          getCurrentDimensions();
+            signalMeterDelay = 800;
+            getCurrentDimensions();
         });
     } else {
         const sdrCanvasDrawAboveCanvas = document.getElementById('draw-above-canvas');
