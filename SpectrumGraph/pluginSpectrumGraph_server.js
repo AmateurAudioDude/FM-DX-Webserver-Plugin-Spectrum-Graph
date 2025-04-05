@@ -728,7 +728,7 @@ function startScan(command) {
     sigArray = [];
 
     // Wait for U value using async
-    async function waitForUValue(timeout = 8000, interval = 10) {
+    async function waitForUValue(timeout = 8000 + (isFirstRun ? 12000 : 0), interval = 10) {
         const waitStartTime = Date.now(); // Start of waiting period
 
         while (Date.now() - waitStartTime < timeout) {
