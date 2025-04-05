@@ -728,23 +728,28 @@ function startScan(command) {
     sigArray = [];
 
     // Wait for U value using async
-    async function waitForUValue(timeout = 8000 + (isFirstRun ? 12000 : 0), interval = 10) {
-        const waitStartTime = Date.now(); // Start of waiting period
+    async function waitForUValue(timeout = 8000 + (isFirstRun ? 22000 : 0), interval = 10) {
+        const waitStartTime = process.hrtime(); // Start of waiting period
 
-        while (Date.now() - waitStartTime < timeout) {
+        while (true) {
+            const elapsedTimeInNanoseconds = process.hrtime(waitStartTime);
+            const elapsedTimeInMilliseconds = (elapsedTimeInNanoseconds[0] * 1000) + (elapsedTimeInNanoseconds[1] / 1e6); // Convert to milliseconds
+
+            if (elapsedTimeInMilliseconds >= timeout) {
+                throw new Error(`${pluginName} timed out`); // Throw error if timed out
+            }
+
             if (interceptedUData !== null && interceptedUData !== undefined) {
                 return interceptedUData; // Return when data is fetched
             }
 
             await new Promise(resolve => setTimeout(resolve, interval)); // Wait for next check
         }
-
-        throw new Error(`${pluginName} timed out`); // Throw error if timed out
     }
 
     (async () => {
         try {
-            const scanStartTime = Date.now(); // Start of entire scan process
+            const scanStartTime = process.hrtime();
             let uValue = await waitForUValue();
 
             // Possibly interrupted, but should never execute, as trailing commas should have already been removed
@@ -760,7 +765,8 @@ function startScan(command) {
             }
             if (debug) console.log(uValue);
 
-            const completeTime = ((Date.now() - scanStartTime) / 1000).toFixed(1); // Calculate total time
+            const completeTimeInNanoseconds = process.hrtime(scanStartTime); 
+            const completeTime = (completeTimeInNanoseconds[0] + completeTimeInNanoseconds[1] / 1e9).toFixed(1); // Convert to seconds
             if (logLocalCommands || (!logLocalCommands && (!ipAddress.includes('ws://')) || isFirstRun)) logInfo(`${pluginName}: Spectrum scan (${(tuningLowerLimitScan / 1000)}-${(tuningUpperLimitScan / 1000)} MHz) ${antennaResponse.enabled ? `for Ant. ${antennaCurrent} ` : ''}complete in ${completeTime} seconds.`);
 
             if (!isFirstRun) lastRestartTime = Date.now();
