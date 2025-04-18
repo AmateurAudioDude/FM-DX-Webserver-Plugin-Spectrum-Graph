@@ -200,6 +200,61 @@ function initConfigSystem() {
 
 initConfigSystem();
 
+// Serialport status variables
+let alreadyWarnedMissingSerialportVars = false;
+let getSerialportStatus = null;
+
+(function initSerialportStatusSource() {
+  if (
+    dataHandler?.state &&
+    typeof dataHandler.state.isSerialportAlive !== 'undefined' &&
+    typeof dataHandler.state.isSerialportRetrying !== 'undefined'
+  ) {
+    getSerialportStatus = () => ({
+      isAlive: dataHandler.state.isSerialportAlive,
+      isRetrying: dataHandler.state.isSerialportRetrying
+    });
+  } else if (
+    typeof isSerialportAlive !== 'undefined' &&
+    typeof isSerialportRetrying !== 'undefined'
+  ) {
+    getSerialportStatus = () => ({
+      isAlive: isSerialportAlive,
+      isRetrying: isSerialportRetrying
+    });
+    //logWarn(`${pluginName}: Older Serialport status variables found.`);
+  } else {
+    if (!alreadyWarnedMissingSerialportVars) {
+      alreadyWarnedMissingSerialportVars = true;
+      logWarn(`${pluginName}: Serialport status variables not found.`);
+    }
+  }
+})();
+
+function checkSerialportStatus() {
+  if (!getSerialportStatus) return;
+
+  const { isAlive, isRetrying } = getSerialportStatus();
+
+  if (!isAlive || isRetrying) {
+    if (textSocketLost) {
+      clearTimeout(textSocketLost);
+    }
+
+    textSocketLost = setTimeout(() => {
+      logInfo(`${pluginName} connection lost, creating new WebSocket.`);
+      if (textSocket) {
+        try {
+          textSocket.close(1000, 'Normal closure');
+        } catch (error) {
+          logInfo(`${pluginName} error closing WebSocket:`, error);
+        }
+      }
+      textSocketLost = null;
+    }, 10000);
+  }
+}
+
 // Function for 'text' WebSocket
 async function TextWebSocket(messageData) {
     if (!textSocket || textSocket.readyState === WebSocket.CLOSED) {
@@ -218,31 +273,7 @@ async function TextWebSocket(messageData) {
                         const messageData = JSON.parse(event.data);
                         // console.log(messageData);
 
-                        if (typeof isSerialportAlive !== 'undefined' && typeof isSerialportRetrying !== 'undefined') {
-                            if (!isSerialportAlive || isSerialportRetrying) {
-                                if (textSocketLost) {
-                                    clearTimeout(textSocketLost);
-                                }
-
-                                textSocketLost = setTimeout(() => {
-                                    // WebSocket reconnection required after serialport connection loss
-                                    logInfo(`${pluginName} connection lost, creating new WebSocket.`);
-                                    if (textSocket) {
-                                        try {
-                                            textSocket.close(1000, 'Normal closure');
-                                        } catch (error) {
-                                            logInfo(`${pluginName} error closing WebSocket:`, error);
-                                        }
-                                    }
-                                    textSocketLost = null;
-                                }, 10000);
-                            }
-                        } else {
-                            if (!hasLoggedUndefined) {
-                                logWarn(`${pluginName}: isSerialportAlive or isSerialportRetrying is not defined.`);
-                                hasLoggedUndefined = true;
-                            }
-                        }
+                        checkSerialportStatus();
 
                     } catch (error) {
                         logError(`${pluginName} failed to parse WebSocket message:`, error);
