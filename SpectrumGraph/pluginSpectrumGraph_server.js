@@ -206,13 +206,13 @@ let getSerialportStatus = null;
 
 (function initSerialportStatusSource() {
   if (
-    dataHandler?.state &&
-    typeof dataHandler.state.isSerialportAlive !== 'undefined' &&
-    typeof dataHandler.state.isSerialportRetrying !== 'undefined'
+    datahandlerReceived?.state &&
+    typeof datahandlerReceived.state.isSerialportAlive !== 'undefined' &&
+    typeof datahandlerReceived.state.isSerialportRetrying !== 'undefined'
   ) {
     getSerialportStatus = () => ({
-      isAlive: dataHandler.state.isSerialportAlive,
-      isRetrying: dataHandler.state.isSerialportRetrying
+      isAlive: datahandlerReceived.state.isSerialportAlive,
+      isRetrying: datahandlerReceived.state.isSerialportRetrying
     });
   } else if (
     typeof isSerialportAlive !== 'undefined' &&
