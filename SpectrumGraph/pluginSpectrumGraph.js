@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.4 by AAD
+    Spectrum Graph v1.2.5 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -13,12 +13,12 @@ const ENABLE_MOUSE_CLICK_TO_TUNE = true;        // Allow the mouse to tune insid
 const ENABLE_MOUSE_SCROLL_WHEEL = true;         // Allow the mouse scroll wheel to tune inside the graph
 const DECIMAL_MARKER_ROUND_OFF = true;          // Round frequency markers to the nearest integer
 const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/relative or clamp outline
-const ALLOW_ABOVE_CANVAS = false;               // Displays a button to display above signal graph if there is room
+const ALLOW_ABOVE_CANVAS = true;                // Displays a button to display above signal graph if there is room
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.4';
+const pluginVersion = '1.2.5';
 
 // const variables
 const pluginName = "Spectrum Graph";
@@ -1378,7 +1378,7 @@ function initializeCanvasInteractions() {
             // Calculate position of circle
             const adjustedSignalValue = signalValue - minSig;
             const circleX = xOffset + (closestPoint.freq - minFreq) * xScale;
-            const circleY = canvas.height - (adjustedSignalValue * yScale) - 20;
+            const circleY = canvas.height - (Math.max(0, adjustedSignalValue) * yScale) - 20;
 
             // Draw circle at tip of the signal
             ctx.beginPath();
@@ -1391,7 +1391,12 @@ function initializeCanvasInteractions() {
 
             // Tooltip positioning
             let tooltipX = ((xOffset + 10) + (closestPoint.freq - minFreq) * xScale) + canvasFullWidthOffset;
-            let tooltipY = parseInt(canvas.height - 20 - signalValue * yScale);
+            let tooltipY;
+            if (!localStorageItem.isAutoBaseline) {
+                tooltipY = parseInt(canvas.height - 20 - (Math.max(0, signalValue) - minSig) * yScale); // If below 0 dBf
+            } else {
+                tooltipY = parseInt(canvas.height - 20 - (signalValue - minSig) * yScale);
+            }
             const tooltipWidth = tooltip.offsetWidth;
             const tooltipHeight = tooltip.offsetHeight;
 
@@ -1612,7 +1617,7 @@ function drawGraph() {
 
     // Determine min signal value dynamically
     if (localStorageItem.isAutoBaseline) {
-        minSig = Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -1); // Dynamic vertical graph
+        minSig = Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30); // Dynamic vertical graph
         if (ADJUST_SCALE_TO_OUTLINE && localStorageItem.enableHold && (minSigOutline < minSig)) minSig = minSigOutline;
     } else {
         minSig = 0; // Fixed min vertical graph
@@ -1690,7 +1695,7 @@ function drawGraph() {
     minFreqRounded = isDecimalMarkerRoundOff ? Math.ceil(minFreqRounded) : minFreqRounded;
 
     for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
-        const x = xOffset + (freq - minFreq) * xScale;
+        const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
         if (freq !== minFreq && freq !== maxFreq) ctx.fillText(freq.toFixed(1), x - 10, height - 5);
 
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
@@ -1698,7 +1703,7 @@ function drawGraph() {
         ctx.setLineDash([]);
 
         for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
-            const x = xOffset + (freq - minFreq) * xScale;
+            const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
 
             // Draw tick mark only if it's not the first or last frequency
             if (freq !== minFreq && freq !== maxFreq) {
@@ -1719,13 +1724,13 @@ function drawGraph() {
     }
     let labels = [];
     for (let sig = 0; sig <= (maxSig + 0.01); sig += sigLabelStep) { // IEEE 754 workaround for maxSig
-        const y = height - 20.5 - sig * yScale;
+        const y = Math.round(height - 20.5 - (sig + 0.01) * yScale) + 0.5;
         if (signalText === 'dbm') {
             // dBm spacing
-            let tempDbfSig = ((sig - sigOffset) + minSig).toFixed(0);
+            let tempDbmSig = ((sig - sigOffset) + minSig).toFixed(0);
             // dBm
-            if (sig && tempDbfSig > -100) ctx.fillText(tempDbfSig, ((xOffset - xSigOffset) + 8), y + 3);
-            if (sig && tempDbfSig <= -100) ctx.fillText(tempDbfSig, ((xOffset - xSigOffset)) + 1.5, y + 3);
+            if (sig && tempDbmSig > -100) ctx.fillText(tempDbmSig, ((xOffset - xSigOffset) + 8), y + 3);
+            if (sig && tempDbmSig <= -100) ctx.fillText(tempDbmSig, ((xOffset - xSigOffset)) + 1.5, y + 3);
         } else if (signalText === 'dbuv') {
             // dBuV number spacing
             let tempDbuvSig = (((sig - sigOffset) + 1) + minSig).toFixed(0);
@@ -1749,13 +1754,13 @@ function drawGraph() {
     }
 
     // Draw dotted grid lines (horizontal)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.setLineDash([1, 2]); // Dotted lines
     ctx.beginPath(); // Start a new path for all horizontal lines
 
     for (let sig of labels) {
-        const y = (height - 20 - sig * yScale) - 1;
+        const y = Math.round(height - 20 - (sig - 0.001) * yScale) - 0.5;
         ctx.moveTo(xOffset, y);
         ctx.lineTo(width, y);
     }
@@ -1767,14 +1772,14 @@ function drawGraph() {
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
 
-    for (let sig = 0; sig <= maxSig; sig += sigLabelStep) {
-        const y = height - 20 - sig * yScale; // Calculate vertical position
+    for (let sig = 0; sig <= (maxSig + 0.001); sig += sigLabelStep) {
+        const y = Math.round(height - 20 - (sig - 0.001) * yScale) - 0.5; // Calculate vertical position
 
         // Draw tick mark only if it's not the first or last value
         if (sig !== 0) {
             ctx.beginPath();
-            ctx.moveTo(xOffset - 2, y - 1); // Start just to the left of the axis
-            ctx.lineTo(xOffset, y - 1); // Extend slightly outwards
+            ctx.moveTo(xOffset - 2, y); // Start just to the left of the axis
+            ctx.lineTo(xOffset, y); // Extend slightly outwards
             ctx.stroke();
         }
     }
@@ -1798,9 +1803,13 @@ function drawGraph() {
 
     // Draw graph line
     sigArray.forEach((point, index) => {
-        if (point.sig < 0) point.sig = 0;
         const x = xOffset + (point.freq - minFreq) * xScale;
-        const y = height - (point.sig - minSig) * yScale;
+        let y;
+        if (!localStorageItem.isAutoBaseline && point.sig < 0) {
+            y = Math.round(height - (0 - minSig) * yScale); // If below 0 dBf
+        } else {
+            y = Math.round(height - (point.sig - minSig) * yScale);
+        }
         if (index === 0) {
             ctx.lineTo(x, y - 20);
         } else {
@@ -1828,16 +1837,16 @@ function drawGraph() {
     ctx.fill();
 
     // Draw grid lines (vertical)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
     ctx.lineWidth = 0.5;
     ctx.setLineDash([1, 2]); // Dotted lines
 
     // Vertical grid lines (for each frequency step)
     for (let freq = minFreqRounded; freq.toFixed(2) <= maxFreq; freq += freqStep) {
-        const x = xOffset + (freq - minFreq) * xScale;
+        const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
         if (freq !== minFreq) {
             ctx.beginPath();
-            ctx.moveTo(x, 8);
+            ctx.moveTo(x, 9.5);
             ctx.lineTo(x, height - 20);
             ctx.stroke();
         }
@@ -1899,9 +1908,13 @@ function drawGraph() {
     // Draw graph line
     let leftX, rightX;
     sigArray.forEach((point, index) => {
-        if (point.sig < 0) point.sig = 0;
         const x = xOffset + (point.freq - minFreq) * xScale;
-        const y = height - 20 - point.sig * yScale;
+        let y;
+        if (!localStorageItem.isAutoBaseline && point.sig < 0) {
+            y = height - 20 - 0 * yScale; // If below 0 dBf
+        } else {
+            y = height - 20 - point.sig * yScale;
+        }
 
         // Draw current frequency line
         if (Number(dataFrequencyValue).toFixed(1) == Number(point.freq).toFixed(1)) {
@@ -1920,7 +1933,7 @@ function drawGraph() {
     ctx.fillStyle = 'rgba(224, 224, 240, 0.3)';
 
     // Draw vertical highlight region
-    ctx.fillRect(leftX, 8, rightX - leftX, height - 28); // From top to bottom of graph
+    ctx.fillRect(leftX, 9, rightX - leftX, height - 29); // From top to bottom of graph
 
     const colorLines = getComputedStyle(document.documentElement).getPropertyValue('--color-5').trim();
 
@@ -1935,7 +1948,7 @@ function drawGraph() {
     ctx.beginPath();
     ctx.moveTo((xOffset - 0.5), height - 19.5); // X-axis
     ctx.lineTo(width + 0.5, height - 19.5);
-    ctx.moveTo((xOffset - 0.5), 8.5); // Y-axis
+    ctx.moveTo((xOffset - 0.5), 9); // Y-axis
     ctx.lineTo((xOffset - 0.5), height - 19.5);
     ctx.stroke();
 
@@ -1955,6 +1968,7 @@ function drawGraph() {
 
             // Clamp y value if it's below the graph
             if (!ADJUST_SCALE_TO_OUTLINE) y = Math.max(0, Math.min(canvas.height, y));
+            if (!localStorageItem.isAutoBaseline && point.sig < 0) y = Math.max(0, Math.min(canvas.height, y)); // If below 0 dBf
 
             if (i === 0) {
                 ctx.moveTo(x, y - 20);
