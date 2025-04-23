@@ -223,7 +223,7 @@ let getSerialportStatus = null;
       isAlive: isSerialportAlive,
       isRetrying: isSerialportRetrying
     });
-    //logWarn(`${pluginName}: Older Serialport status variables found.`);
+    logWarn(`${pluginName}: Older Serialport status variables found.`);
   } else {
     if (!alreadyWarnedMissingSerialportVars) {
       alreadyWarnedMissingSerialportVars = true;
