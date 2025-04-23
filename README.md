@@ -40,6 +40,7 @@ v1.2.5
 * Fixed blurry gridlines
 * Fixed displaying values below 0 dBf
 * Added button to show spectrum graph above signal graph if screen space allows
+* Fix for FM-DX Webserver v1.3.7 compatibility issue
 * Minor fixes
 
 v1.2.4
