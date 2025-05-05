@@ -85,7 +85,7 @@ let ScannerLimiterOpacity = 0.2;
 localStorageItem.enableSmoothing = localStorage.getItem('enableSpectrumGraphSmoothing') === 'true';                 // Smooths the graph edges
 localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphFixedVerticalGraph') === 'true';     // Fixed/dynamic vertical graph based on peak signal
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
-localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';          // Move above signal graph canvas
+localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';     // Move above signal graph canvas
 
 // Create Spectrum Graph button
 function createButton(buttonId) {
@@ -199,7 +199,7 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
 
         let buttonWrapper = $('#button-wrapper');
         if (buttonWrapper.length < 1) {
-            buttonWrapper = createDefaultButtonWrapper();
+            if (window.location.pathname !== '/setup') buttonWrapper = createDefaultButtonWrapper();
         }
 
         if (window.location.pathname !== '/setup' && buttonWrapper.length) {
@@ -1073,7 +1073,7 @@ function getDummyData() {
 }
 
 // Call function on page load
-window.addEventListener('load', initializeGraph);
+if (window.location.pathname !== '/setup') window.addEventListener('load', initializeGraph);
 
 // Fetch current antenna
 async function getCurrentAntenna() {
@@ -1116,7 +1116,7 @@ function displaySignalCanvas() {
             pluginButton.disabled = false;
         }, 400);
     } else {
-        console.warn(`[${pluginName}] Function 'addIconToPluginPanel' not found or resolution too low to display.`);
+        if (window.location.pathname !== '/setup') console.warn(`[${pluginName}] Function 'addIconToPluginPanel' not found or resolution too low to display.`);
     }
 
     const sdrCanvas = document.getElementById('sdr-graph');
