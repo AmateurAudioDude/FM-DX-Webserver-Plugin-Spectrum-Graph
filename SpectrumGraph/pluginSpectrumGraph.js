@@ -666,7 +666,7 @@ function ScanButton() {
     // Create new button for controlling spectrum
     const spectrumButton = document.createElement('button');
     spectrumButton.id = 'spectrum-scan-button';
-    spectrumButton.setAttribute('aria-label', 'Spectrum Graph Scan');
+    spectrumButton.setAttribute('aria-label', 'Perform manual spectrum graph scan');
     spectrumButton.classList.add('rectangular-spectrum-button', 'tooltip');
     spectrumButton.setAttribute('data-tooltip', 'Perform Manual Scan');
     spectrumButton.innerHTML = '<i class="fa-solid fa-rotate"></i>';
@@ -752,15 +752,14 @@ function ScanButton() {
     document.head.appendChild(styleElement);
 
     /*
-    ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,        ButtonPosition)
+    ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,                ButtonPosition)
     */
-    //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
-    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
-    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96');
-    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136');
-    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176');
+    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',   'Hold peaks'); //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
+    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96',   'Visually smooth graph edges');
+    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136',  'Toggle between relative or fixed scale');
+    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176',  'Auto baseline (adjust graph for noise floor)');
     if (drawAboveCanvasIsPossible) {
-    ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph',  drawAboveCanvasOverridePosition ? 'turn-down' : 'turn-up',       'isAboveSignalCanvas',  'AboveSignalCanvas',            '216');
+    ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph',  drawAboveCanvasOverridePosition ? 'turn-down' : 'turn-up',       'isAboveSignalCanvas',  'AboveSignalCanvas',            '216', 'Move spectrum graph above signal graph');
         const drawAboveSignalCanvasButton = document.getElementById('draw-above-canvas');
         drawAboveSignalCanvasButton.addEventListener('click', function() {
             signalMeterDelay = 800;
@@ -812,7 +811,7 @@ function ScanButton() {
 }
 
 // Create button
-function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, localStorageKey, ButtonPosition) {
+function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, localStorageKey, ButtonPosition, ariaLabel) {
     // Remove any existing instances of button
     const existingButtons = document.querySelectorAll(`.${Id}`);
     existingButtons.forEach(button => button.remove());
@@ -820,7 +819,7 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     // Create new button
     const toggleButton = document.createElement('button');
     toggleButton.id = `${Id}`;
-    toggleButton.setAttribute('aria-label', 'Toggle On/Off');
+    toggleButton.setAttribute('aria-label', `${ariaLabel}`);
     toggleButton.classList.add(`${Id}`, 'tooltip');
     toggleButton.setAttribute('data-tooltip', `${Tooltip}`);
     toggleButton.innerHTML = `<i class="fa-solid fa-${FontAwesomeIcon}"></i>`;
@@ -1092,7 +1091,7 @@ async function getCurrentAntenna() {
 
                 // Hold peaks antenna localStorage
                 localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
-                if (isGraphOpen) ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56');
+                if (isGraphOpen) ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',  'Hold peaks');
                 if (typeof initTooltips === 'function') initTooltips();
                 outlinePointsSavePermission = !localStorageItem.enableHold;
                 if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
@@ -1865,6 +1864,10 @@ function drawGraph() {
     ctx.beginPath();
     ctx.moveTo(xOffset, height - 20); // Start from bottom-left corner
 
+    // Reset screen reader variables
+    let ariaLabelMin = (Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
+    let ariaLabelStationCount = 0;
+
     // Draw graph line
     sigArray.forEach((point, index) => {
         const x = xOffset + (point.freq - minFreq) * xScale;
@@ -1878,8 +1881,14 @@ function drawGraph() {
             ctx.lineTo(x, y - 20);
         } else {
             ctx.lineTo(x, y - 20);
+            if ((point.sig - ariaLabelMin) > 12) ariaLabelStationCount++;
         }
     });
+
+    // For screen readers
+    const sdrGraph = document.querySelector('.canvas-container');
+    if (sdrGraph) sdrGraph.setAttribute('role', 'img');
+    if (sdrGraph) sdrGraph.setAttribute('aria-label', `Signal graph showing ${parseInt(ariaLabelStationCount / 3)} possibly detected stations across the frequency spectrum from ${minFreq} to ${maxFreq} MHz`);
 
     if (localStorageItem.enableSmoothing) {
         ctx.fillStyle = gradient;
