@@ -1881,7 +1881,7 @@ function drawGraph() {
             ctx.lineTo(x, y - 20);
         } else {
             ctx.lineTo(x, y - 20);
-            if ((point.sig - ariaLabelMin) > 12) ariaLabelStationCount++;
+            if ((point.sig - ariaLabelMin) > 15) ariaLabelStationCount++;
         }
     });
 
