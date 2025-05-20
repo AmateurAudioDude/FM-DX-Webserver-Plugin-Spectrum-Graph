@@ -285,7 +285,7 @@ async function TextWebSocket(messageData) {
             textSocket.onerror = (error) => logError(`${pluginName} WebSocket error:`, error);
 
             textSocket.onclose = () => {
-                logInfo(`${pluginName} closed WebSocket`);
+                logInfo(`${pluginName} WebSocket closed (/text)`);
                 setTimeout(() => TextWebSocket(messageData), 2000); // Pass messageData when reconnecting
             };
 
@@ -311,7 +311,7 @@ async function ExtraWebSocket() {
             };
 
             extraSocket.onclose = () => {
-                logInfo(`${pluginName} WebSocket closed.`);
+                logInfo(`${pluginName} WebSocket closed (/data_plugins)`);
                 setTimeout(ExtraWebSocket, 2000); // Reconnect after delay
             };
 
