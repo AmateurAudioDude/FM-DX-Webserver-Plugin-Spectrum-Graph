@@ -897,6 +897,11 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
         filter: brightness(150%) contrast(110%);
         box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.5), 0 0 10px var(--color-5);
     }
+
+    .wrapper-outer #wrapper .canvas-container #sdr-graph-button-container button:hover:active {
+        opacity: 1.6;
+        filter: brightness(1.7);
+    }
 `;
 
     const styleElement = document.createElement('style');
