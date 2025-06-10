@@ -86,6 +86,7 @@ localStorageItem.enableSmoothing = localStorage.getItem('enableSpectrumGraphSmoo
 localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphFixedVerticalGraph') === 'true';     // Fixed/dynamic vertical graph based on peak signal
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
 localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';     // Move above signal graph canvas
+localStorageItem.disableNoiseFloorLabel = localStorage.getItem('enableSpectrumHideNoiseFloorLabel') === 'true';     // Display noise floor signal label
 
 // Create Spectrum Graph button
 function createButton(buttonId) {
@@ -1611,6 +1612,22 @@ $(window).on('load', function() {
     }, 1000);
 });
 
+// Action on click on left side of canvas
+const clickCanvas = document.getElementById('sdr-graph');
+
+clickCanvas.addEventListener('click', function(event) {
+    const rect = clickCanvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const canvasWidth = clickCanvas.width;
+
+    if (clickX <= canvasWidth * 0.025 || clickX <= 26 || (signalText === 'dbm' && clickX <= 34)) {
+        const newStorageValue = !localStorageItem.disableNoiseFloorLabel;
+        localStorage.setItem('enableSpectrumHideNoiseFloorLabel', newStorageValue.toString());
+        localStorageItem.disableNoiseFloorLabel = newStorageValue;
+        setTimeout(drawGraph, drawGraphDelay);
+    }
+});
+
 // Draw graph
 function drawGraph() {
     const ctx = canvas.getContext('2d', { willReadFrequently: false });
@@ -1622,7 +1639,7 @@ function drawGraph() {
 
     // Check if sigArray has data
     if (!sigArray || sigArray.length === 0) {
-        //console.error("sigArray is empty or not defined");
+        //console.error(`[${pluginName}] sigArray is empty or not defined`);
         return;
     }
 
@@ -1661,7 +1678,7 @@ function drawGraph() {
         // Load saved graph outline
         const savedData = localStorage.getItem(`enableSpectrumGraphOutline${currentAntenna}`);
         if (!savedData) {
-            //console.log(`[${pluginName}] No saved graph outline found.`);
+            console.log(`[${pluginName}] No saved graph outline found.`);
             return;
         }
 
@@ -1685,7 +1702,7 @@ function drawGraph() {
 
     // Determine min signal value dynamically
     if (localStorageItem.isAutoBaseline) {
-        minSig = Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30); // Dynamic vertical graph
+        minSig = Number(Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30).toFixed(3)); // Dynamic vertical graph
         if (ADJUST_SCALE_TO_OUTLINE && localStorageItem.enableHold && (minSigOutline < minSig)) minSig = minSigOutline;
     } else {
         minSig = 0; // Fixed min vertical graph
@@ -1806,7 +1823,7 @@ function drawGraph() {
             // dBuV using +1 for even numbering
             if (sig && tempDbuvSig >= 10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset), y + 3);
             if (sig && tempDbuvSig > 0 && tempDbuvSig < 10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 6.5, y + 3);
-            if (sig && tempDbuvSig == 0) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 5.5, y + 3);
+            if (sig && tempDbuvSig == 0) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 6.5, y + 3);
             if (sig && tempDbuvSig < 0 && tempDbuvSig > -10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 1.5, y + 3);
             if (sig && tempDbuvSig <= -10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) - 5.5, y + 3);
         } else if (signalText === 'dbf') {
@@ -1819,6 +1836,33 @@ function drawGraph() {
             if (sig && tempDbfSig < 0) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) + 1.5, y + 3);
         }
         labels.push(sig); // Store labeled values
+    }
+
+    // Draw noise floor signal label
+    const disableNoiseFloorLabel = localStorageItem.disableNoiseFloorLabel;
+    if (!disableNoiseFloorLabel) {
+        let drawLabelMin = (Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
+        drawLabelMin = drawLabelMin - sigOffset;
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-3').trim();
+        let yScaleFixed = Math.round(height - 20.5 - (0 + 0.01) * yScale) + 0.5;
+        if (signalText === 'dbm') {
+            // dBm
+            if (drawLabelMin > -100) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 8, yScaleFixed + 3);
+            if (drawLabelMin <= -100) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 1.5, yScaleFixed + 3);
+        } else if (signalText === 'dbuv') {
+            // dBuV
+            if (drawLabelMin >= 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset), yScaleFixed + 3);
+            if (drawLabelMin > 0 && drawLabelMin < 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 6.5, yScaleFixed + 3);
+            if (drawLabelMin == 0) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 5.5, yScaleFixed + 3);
+            if (drawLabelMin < 0 && drawLabelMin > -10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 1.5, yScaleFixed + 3);
+            if (drawLabelMin <= -10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) - 5.5, yScaleFixed + 3);
+        } else if (signalText === 'dbf') {
+            // dBf
+            if (drawLabelMin >= 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset), yScaleFixed + 3);
+            if (drawLabelMin > 0 && drawLabelMin < 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 6.5, yScaleFixed + 3);
+            if (drawLabelMin == 0) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 5.5, yScaleFixed + 3);
+            if (drawLabelMin < 0) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 1.5, yScaleFixed + 3);
+        }
     }
 
     // Draw dotted grid lines (horizontal)
