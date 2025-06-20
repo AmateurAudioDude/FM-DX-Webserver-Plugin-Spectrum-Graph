@@ -5,6 +5,8 @@
     //// Server-side code ////
 */
 
+'use strict';
+
 const pluginName = "Spectrum Graph";
 
 // Library imports

@@ -3,6 +3,8 @@
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
+'use strict';
+
 (() => {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -760,7 +762,10 @@ function ScanButton() {
     ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136',  'Toggle between relative or fixed scale');
     ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176',  'Auto baseline (adjust graph for noise floor)');
     if (drawAboveCanvasIsPossible) {
-    ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph',  drawAboveCanvasOverridePosition ? 'turn-down' : 'turn-up',       'isAboveSignalCanvas',  'AboveSignalCanvas',            '216', 'Move spectrum graph above signal graph');
+    ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph', 
+                                              drawAboveCanvasOverridePosition ? 'turn-down' : 
+                                                                                'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            '216',  'Move spectrum graph above signal graph');
+
         const drawAboveSignalCanvasButton = document.getElementById('draw-above-canvas');
         drawAboveSignalCanvasButton.addEventListener('click', function() {
             signalMeterDelay = 800;
@@ -2020,7 +2025,7 @@ function drawGraph() {
             ctx.stroke();
 
             // Write the Sensitivity value above the line
-            ctx.fillStyle = 'rgba(4, 56, 215, 1.0)';
+            ctx.fillStyle = 'rgba(48, 96, 240, 1.0)';
             ctx.font = '12px Arial, Titillium Web, Helvetica';
             ctx.textAlign = 'left';
             ctx.fillText(`${Math.round(Number(ScannerSensitivity.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + 5, yPositionScannerSensitivityValue - 5);
