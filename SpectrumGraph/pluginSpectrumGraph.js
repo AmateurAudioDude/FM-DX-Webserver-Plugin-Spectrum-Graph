@@ -102,6 +102,43 @@ function createButton(buttonId) {
                 addIconToPluginPanel(buttonId, "Spectrum", "solid", "chart-area", "Spectrum Graph");
                 functionFound = true;
 
+                // Launch on quick click
+                const quickLaunchDelay = Date.now();
+                const pluginButtonOnLaunch = document.getElementById('spectrum-graph-button');
+                function handleClickOnLaunch() {
+                    console.log(`[${pluginName}] Quick launch`);
+                    if (!localStorageItem.isAboveSignalCanvas) {
+                        document.head.appendChild(Object.assign(document.createElement('style'), {
+                          textContent: `
+                            #spectrum-graph-button {
+                                background-color: var(--color-2) !important;
+                                filter: brightness(120%);
+                            }
+                          `
+                        }));
+                    }
+                    setTimeout(() => {
+                        if (!isGraphOpen && !localStorageItem.isAboveSignalCanvas) toggleSpectrum();
+                        if (!localStorageItem.isAboveSignalCanvas) {
+                            setTimeout(() => {
+                                document.head.appendChild(Object.assign(document.createElement('style'), {
+                                  textContent: `
+                                    #spectrum-graph-button {
+                                        background-color: initial !important;
+                                        filter: inherit;
+                                    }
+                                  `
+                                }));
+                            }, 80);
+                        }
+                    }, 650 - (Date.now() - quickLaunchDelay));
+                }
+                pluginButtonOnLaunch.addEventListener('click', handleClickOnLaunch, { once: true });
+                setTimeout(() => {
+                    //pluginButtonOnLaunch.disabled = true;
+                    pluginButtonOnLaunch.removeEventListener('click', handleClickOnLaunch);
+                }, 650); // 400 if button disabled
+
                 const buttonObserver = new MutationObserver(() => {
                     const $pluginButton = $(`#${buttonId}`);
                     if ($pluginButton.length > 0) {
@@ -114,7 +151,7 @@ function createButton(buttonId) {
                                 }
                                 toggleSpectrum();
                             });
-                        }, 400);
+                        }, 650); // 400 without quick launch
                         buttonObserver.disconnect(); // Stop observing once button is found
                         // Additional code
                         const pluginButton = document.getElementById(`${buttonId}`);
@@ -159,14 +196,14 @@ function createButton(buttonId) {
 if (document.querySelector('.dashboard-panel-plugin-list')) {
     createButton('spectrum-graph-button');
 
-    const style = document.createElement('style');
-    style.textContent = `
-#spectrum-graph-button.active {
-    background-color: var(--color-2) !important;
-    filter: brightness(120%);
-}
-`;
-    document.head.appendChild(style);
+    document.head.appendChild(Object.assign(document.createElement('style'), {
+      textContent: `
+        #spectrum-graph-button.active {
+            background-color: var(--color-2) !important;
+            filter: brightness(120%);
+        }
+      `
+    }));
 } else {
     // FM-DX Webserver v1.3.4 compatibility
     const useLegacyButtonSpacingBetweenCanvas = true;
@@ -1121,7 +1158,7 @@ function displaySignalCanvas() {
     const pluginButton = document.getElementById('spectrum-graph-button');
     if (pluginButton) {
         pluginButton.classList.remove('active');
-        pluginButton.disabled = true;
+        if (isGraphOpen) pluginButton.disabled = true;
         setTimeout(() => {
             pluginButton.disabled = false;
         }, 400);
