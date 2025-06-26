@@ -390,7 +390,11 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
             }
             if (interceptedUData && interceptedUData.endsWith(',')) { // Some firmware might still have a trailing comma
                 interceptedUData = interceptedUData.slice(0, -1);
-                if (warnIncompleteData) logWarn(`${pluginName}: Spectrum scan appears incomplete.`);
+                if (warnIncompleteData) {
+                    const completeData = { isScanComplete: false };
+                    updateSpectrumData(completeData);
+                    logWarn(`${pluginName}: Spectrum scan appears incomplete.`);
+                }
             }
             if (interceptedUData) { // Remove any non-digit characters at the end
                 interceptedUData = interceptedUData.replace(/\D+$/, '');
@@ -661,7 +665,7 @@ function startScan(command) {
     if (isScanRunning) return;
 
     // Update endpoint
-    const newData = { sd: null };
+    const newData = { sd: null, isScanComplete: true };
     updateSpectrumData(newData);
 
     // Restrict to config tuning limit, else 0-108 MHz

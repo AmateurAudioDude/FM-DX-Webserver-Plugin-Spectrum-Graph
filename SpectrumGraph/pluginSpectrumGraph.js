@@ -52,7 +52,10 @@ let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
 let isGraphOpen = false;
+let isScanComplete = true;
+let isScanCompleteFirstWarn = false;
 let isSpectrumOn = false;
+let graphError = false;
 let currentAntenna = 0;
 let canvasFullWidthOffset = 0;
 let prevCanvasHeight = canvasFullHeight;
@@ -967,10 +970,9 @@ function insertUpdateText(updateText) {
     updateTextElement.style.position = 'absolute';
     updateTextElement.style.top = '32px';
     updateTextElement.style.left = '40px';
-    updateTextElement.style.zIndex = '10';
     updateTextElement.style.color = 'var(--color-5-transparent)';
     updateTextElement.style.fontSize = '14px';
-    updateTextElement.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    updateTextElement.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
     updateTextElement.style.padding = '4px 8px';
     updateTextElement.style.borderRadius = '5px';
     updateTextElement.style.opacity = '1';
@@ -983,7 +985,9 @@ function insertUpdateText(updateText) {
         const canvasContainer = canvas.parentElement;
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
             canvasContainer.style.position = 'relative';
-            canvasContainer.appendChild(updateTextElement);
+            setTimeout(() => {
+                canvasContainer.appendChild(updateTextElement);
+            }, 300);
         } else {
             console.error(`[${pluginName}] Parent container is not .canvas-container`);
         }
@@ -1046,6 +1050,8 @@ async function initializeGraph() {
 
         const data = await response.json();
 
+        if (data.sd && data.isScanComplete === false && isScanCompleteFirstWarn === false) isScanComplete = false;
+
         // Switch to data of current antenna
         if (data.ad && data.sd && (data.sd0 || data.sd1)) {
             data.sd = data[`sd${data.ad}`];
@@ -1092,10 +1098,14 @@ async function initializeGraph() {
             getDummyData();
         }
     } catch (error) {
+        graphError = true;
         console.error(`[${pluginName}] error during graph initialisation.`);
         getDummyData();
     }
     getCurrentAntenna();
+
+    const existingText = document.querySelector('.spectrum-graph-update-text');
+    if (existingText) existingText.remove();
 }
 
 function getDummyData() {
@@ -1135,6 +1145,9 @@ async function getCurrentAntenna() {
                 if (data.ant) {
                     currentAntenna = data.ant;
                     console.log(`[${pluginName}] data found for antenna ${data.ant}.`);
+
+                    const existingText = document.querySelector('.spectrum-graph-update-text');
+                    if (existingText) existingText.remove();
                 }
 
                 // Hold peaks antenna localStorage
@@ -2159,6 +2172,17 @@ function drawGraph() {
 
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('mousedown', e => (e.button === 1) && e.preventDefault());
+
+    if (!graphError && !isScanComplete) {
+        isScanComplete = true;
+        isScanCompleteFirstWarn = true;
+        insertUpdateText(`[${pluginName}] Spectrum scan appears incomplete. Perform a manual rescan if needed.`);
+    }
+
+    if (graphError) {
+        graphError = false;
+        insertUpdateText(`[${pluginName}] error during graph initialisation. The server may need to be restarted.`);
+    }
 
     return updateBounds(xScale, minFreq, freqRange, yScale);
 }
