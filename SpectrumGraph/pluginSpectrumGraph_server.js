@@ -665,8 +665,14 @@ function startScan(command) {
     if (isScanRunning) return;
 
     // Update endpoint
-    const newData = { sd: null, isScanComplete: true };
-    updateSpectrumData(newData);
+    if (currentFrequency >= 64) {
+        const newData = { sd: null, isScanComplete: true };
+        updateSpectrumData(newData);
+    } else {
+        isScanHalted(true);
+        logWarn(`${pluginName}: Hardware is not capable of scanning below 64 MHz.`);
+        return;
+    }
 
     // Restrict to config tuning limit, else 0-108 MHz
     let tuningLimit = config.webserver.tuningLimit;
