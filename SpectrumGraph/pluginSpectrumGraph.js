@@ -1898,7 +1898,7 @@ function drawGraph() {
     if (!disableNoiseFloorLabel) {
         let drawLabelMin = (Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
         drawLabelMin = (drawLabelMin - 0.1) - sigOffset;
-        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-3').trim();
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(localStorageItem.isAutoBaseline ? '--color-5' : '--color-3').trim();
         let yScaleFixed = Math.round(height - 20.5 - (0 + 0.01) * yScale) + 0.5;
         if (signalText === 'dbm') {
             // dBm
