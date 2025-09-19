@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.5 by AAD
+    Spectrum Graph v1.2.6 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -19,7 +19,7 @@ const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pix
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.5';
+const pluginVersion = '1.2.6';
 const pluginName = "Spectrum Graph";
 const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
 const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
@@ -48,6 +48,9 @@ let drawAboveCanvasPreviousStatus = false;
 let drawAboveCanvasTimeout;
 let drawAboveCanvasTimeoutSignalMeter;
 let drawAboveCanvasTimeoutStyle;
+let resizeTimerAboveCanvas;
+let resizeTimerAboveCanvasLength = 80;
+let quickLaunchValue = 800;
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
@@ -134,13 +137,13 @@ function createButton(buttonId) {
                                 }));
                             }, 80);
                         }
-                    }, 650 - (Date.now() - quickLaunchDelay));
+                    }, quickLaunchValue - (Date.now() - quickLaunchDelay));
                 }
                 pluginButtonOnLaunch.addEventListener('click', handleClickOnLaunch, { once: true });
                 setTimeout(() => {
                     //pluginButtonOnLaunch.disabled = true;
                     pluginButtonOnLaunch.removeEventListener('click', handleClickOnLaunch);
-                }, 650); // 400 if button disabled
+                }, quickLaunchValue); // 400 if button disabled
 
                 const buttonObserver = new MutationObserver(() => {
                     const $pluginButton = $(`#${buttonId}`);
@@ -154,7 +157,7 @@ function createButton(buttonId) {
                                 }
                                 toggleSpectrum();
                             });
-                        }, 650); // 400 without quick launch
+                        }, quickLaunchValue); // 400 without quick launch
                         buttonObserver.disconnect(); // Stop observing once button is found
                         // Additional code
                         const pluginButton = document.getElementById(`${buttonId}`);
@@ -289,11 +292,19 @@ function getCurrentDimensions() {
 
     prevCanvasHeight = canvasFullHeight;
 
-    if (ALLOW_ABOVE_CANVAS) isDrawAboveCanvas();
+    clearTimeout(resizeTimerAboveCanvas);
+    resizeTimerAboveCanvas = setTimeout(() => {
+        if (ALLOW_ABOVE_CANVAS) isDrawAboveCanvas();
+    }, resizeTimerAboveCanvasLength);
 }
 
-// Function to draw above canvas (BETA)
+// Function to draw above canvas
 function isDrawAboveCanvas() {
+    resizeTimerAboveCanvasLength = 800;
+    resizeTimerAboveCanvas = setTimeout(() => {
+        resizeTimerAboveCanvasLength = 80;
+    }, 800);
+
     // Style elements
     let styleCanvas = document.getElementById('style-canvas') || createStyleElement('style-canvas');
     let styleSignalMeter = document.getElementById('style-signal-meter') || createStyleElement('style-signal-meter');

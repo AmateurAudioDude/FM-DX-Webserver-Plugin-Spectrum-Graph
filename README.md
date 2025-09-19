@@ -15,7 +15,7 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 * Client-side configuration options located in `pluginSpectrumGraph.js`
 
 > [!IMPORTANT]
-> For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.11.11 beta** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32).
+> For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32). It is strongly recommended that radios with older firmware be upgraded for optimal performance.
 
 ## SpectrumGraph.json
  
@@ -34,6 +34,16 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 
 ### Known issues
 * The plugin currently doesn't function if tuning is locked.
+
+v1.2.6
+------
+* Added noise floor value to bottom-left corner of graph (click to show/hide)
+* Added notice for incomplete scans and initialisation errors
+* Improved `aria-label` attributes
+* Improved handling of blocking scan attempts below 64 MHz
+* Improved handling of Signal Meter plugin integration
+* Minor visual changes
+* Fixed minor 'Move Above Signal Graph' bugs
 
 v1.2.5
 ------
