@@ -43,7 +43,7 @@ v1.2.6
 * Improved handling of blocking scan attempts below 64 MHz
 * Improved handling of Signal Meter plugin integration
 * Minor visual changes
-* Fixed minor 'Move Above Signal Graph' bugs
+* Minor 'Move Above Signal Graph' fixes
 
 v1.2.5
 ------
