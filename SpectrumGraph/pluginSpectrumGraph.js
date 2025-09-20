@@ -1682,6 +1682,22 @@ $(window).on('load', function() {
 // Action on click on left side of canvas
 const clickCanvas = document.getElementById('sdr-graph');
 
+// Update cursor style on mouse move
+clickCanvas.addEventListener('mousemove', function(event) {
+    const rect = clickCanvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const canvasWidth = clickCanvas.width;
+
+    const leftSideThreshold = (signalText === 'dbm' ? 35 : 29);
+
+    // Change cursor on left side of canvas
+    if (clickX <= leftSideThreshold) {
+        clickCanvas.style.cursor = 'help'; // Left side of canvas
+    } else {
+        clickCanvas.style.cursor = 'crosshair'; // Rest of canvas
+    }
+});
+
 clickCanvas.addEventListener('click', function(event) {
     const rect = clickCanvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
