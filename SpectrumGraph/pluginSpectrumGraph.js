@@ -1201,6 +1201,7 @@ function displaySignalCanvas() {
         sdrCanvas.style.opacity = 0;
         sdrCanvas.style.transition = 'opacity 0.4s ease-in-out, transform 0.4s ease-in-out';
         sdrCanvas.style.transform = 'scale(0.96)';
+        sdrCanvas.style.cursor = 'crosshair';
         isGraphOpen = false;
     }
 
