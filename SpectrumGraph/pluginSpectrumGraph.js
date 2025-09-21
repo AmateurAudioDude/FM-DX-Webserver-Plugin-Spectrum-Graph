@@ -1557,8 +1557,18 @@ function initializeCanvasInteractions() {
         }
     }
 
+    // Track mouse movement to distinguish clicks from drags
+    let mouseDownPos = null;
+    let wasDragging = false;
+
     function handleClick(event) {
         if (!ENABLE_MOUSE_CLICK_TO_TUNE) return;
+
+        // Prevent frequency selection if is was a drag operation
+        if (wasDragging) {
+            wasDragging = false;
+            return;
+        }
         const rect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
@@ -1611,6 +1621,27 @@ function initializeCanvasInteractions() {
             updateTooltip(event);
         }
     }
+
+    // Track mouse events to detect dragging vs clicking
+    canvas.addEventListener('mousedown', function(event) {
+        mouseDownPos = { x: event.clientX, y: event.clientY };
+        wasDragging = false;
+    });
+
+    canvas.addEventListener('mousemove', function(event) {
+        if (mouseDownPos) {
+            const deltaX = Math.abs(event.clientX - mouseDownPos.x);
+            const deltaY = Math.abs(event.clientY - mouseDownPos.y);
+            if (deltaX > 5 || deltaY > 3) {
+                wasDragging = true;
+            }
+        }
+    });
+
+    canvas.addEventListener('mouseup', function(event) {
+        mouseDownPos = null;
+        // wasDragging flag will be checked and reset in handleClick
+    });
 
     // Use throttled mousemove
     if (window.location.pathname !== '/setup') {
