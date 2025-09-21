@@ -31,6 +31,7 @@ const debug = false;
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signal calibration
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
+const resizeEdge = 20;
 const canvasWidthOffset = 2;
 const canvasHeightOffset = 2;
 const windowHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
@@ -1478,7 +1479,6 @@ function initializeCanvasInteractions() {
         const mouseY = event.clientY - rect.top;
 
         // Hide tooltip in resize area
-        const resizeEdge = 20;
         if (mouseY > rect.height - resizeEdge) {
             tooltip.style.visibility = 'hidden';
             return;
@@ -1564,7 +1564,6 @@ function initializeCanvasInteractions() {
         const mouseY = event.clientY - rect.top;
 
         // Exclude bottom area from frequency selection
-        const resizeEdge = 20;
         if (mouseY > rect.height - resizeEdge) return;
 
         // Calculate frequency
@@ -1702,7 +1701,6 @@ clickCanvas.addEventListener('mousemove', function(event) {
     const canvasWidth = clickCanvas.width;
 
     const leftSideThreshold = (signalText === 'dbm' ? 35 : 29);
-    const resizeEdge = 20;
     const isInBottomArea = clickY > rect.height - resizeEdge;
 
     // Change cursor based on position
