@@ -1477,6 +1477,13 @@ function initializeCanvasInteractions() {
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
 
+        // Hide tooltip in resize area
+        const resizeEdge = 20;
+        if (mouseY > rect.height - resizeEdge) {
+            tooltip.style.visibility = 'hidden';
+            return;
+        }
+
         // Calculate frequency
         const freq = minFreq + (mouseX - xOffset) / xScale;
 
@@ -1554,6 +1561,11 @@ function initializeCanvasInteractions() {
         if (!ENABLE_MOUSE_CLICK_TO_TUNE) return;
         const rect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+
+        // Exclude bottom area from frequency selection
+        const resizeEdge = 20;
+        if (mouseY > rect.height - resizeEdge) return;
 
         // Calculate frequency
         const freq = minFreq + (mouseX - xOffset) / xScale;
@@ -1686,12 +1698,17 @@ const clickCanvas = document.getElementById('sdr-graph');
 clickCanvas.addEventListener('mousemove', function(event) {
     const rect = clickCanvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
     const canvasWidth = clickCanvas.width;
 
     const leftSideThreshold = (signalText === 'dbm' ? 35 : 29);
+    const resizeEdge = 20;
+    const isInBottomArea = clickY > rect.height - resizeEdge;
 
-    // Change cursor on left side of canvas
-    if (clickX <= leftSideThreshold) {
+    // Change cursor based on position
+    if (isInBottomArea) {
+        clickCanvas.style.cursor = '';
+    } else if (clickX <= leftSideThreshold) {
         clickCanvas.style.cursor = 'help'; // Left side of canvas
     } else {
         clickCanvas.style.cursor = 'crosshair'; // Rest of canvas
