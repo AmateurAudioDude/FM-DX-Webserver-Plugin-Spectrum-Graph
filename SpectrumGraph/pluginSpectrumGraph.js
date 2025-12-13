@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.6 by AAD
+    Spectrum Graph v1.2.7 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -7,7 +7,7 @@
 
 (() => {
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const BORDERLESS_THEME = true;                  // Background and text colours match FM-DX Webserver theme
 const ENABLE_MOUSE_CLICK_TO_TUNE = true;        // Allow the mouse to tune inside the graph
@@ -15,11 +15,12 @@ const ENABLE_MOUSE_SCROLL_WHEEL = true;         // Allow the mouse scroll wheel 
 const DECIMAL_MARKER_ROUND_OFF = true;          // Round frequency markers to the nearest integer
 const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/relative or clamp outline
 const ALLOW_ABOVE_CANVAS = true;                // Displays a button to display above signal graph if there is room
+const CORRECT_TOOLTIP_PEAKS = true;             // Corrects inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.6';
+const pluginVersion = '1.2.7';
 const pluginName = "Spectrum Graph";
 const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
 const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
@@ -51,12 +52,18 @@ let drawAboveCanvasTimeoutSignalMeter;
 let drawAboveCanvasTimeoutStyle;
 let resizeTimerAboveCanvas;
 let resizeTimerAboveCanvasLength = 80;
-let quickLaunchValue = 800;
+let quickLaunchValue = 1000;
 let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
 let isGraphOpen = false;
 let isScanComplete = true;
+let isPluginInitialized = false; // Track initialisation status
+let isWebSocketReady = false; // Track connection status
+let isInitialDataLoaded = false; // Track data load status
+let isPendingOpen = false; // Track early button click status
+let isAlreadyLaunched = false;
+let isLaunchedEarly = false;
 let isScanCompleteFirstWarn = false;
 let isSpectrumOn = false;
 let graphError = false;
@@ -80,8 +87,9 @@ let removeUpdateTextTimeout;
 let updateText;
 let wsSendSocket;
 let signalMeterDelay = 0;
+let tuningEnabled = true;
 
-// let variables (Scanner plugin code by Highpoint)
+// let variables (Scanner plugin code by Highpoint2000)
 let ScannerIsScanning = false;
 let ScannerMode = '';
 let ScannerModeTemp = '';
@@ -97,6 +105,253 @@ localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoB
 localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';     // Move above signal graph canvas
 localStorageItem.disableNoiseFloorLabel = localStorage.getItem('enableSpectrumHideNoiseFloorLabel') === 'true';     // Display noise floor signal label
 
+function logInfo(...msg) {
+  console.log(`[${pluginName}]`, ...msg);
+}
+
+function logError(...msg) {
+  console.error(`[${pluginName}]`, ...msg);
+}
+
+// Function to handle early button click
+function setupEarlyClickHandler(buttonId) {
+    const buttonObserver = new MutationObserver(() => {
+        const pluginButton = document.getElementById(buttonId);
+        if (pluginButton) {
+            buttonObserver.disconnect();
+
+            // Add click handler that queues the open request
+            const earlyClickHandler = function(e) {
+                if (!isPluginInitialized) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (!isPendingOpen) {
+                        isPendingOpen = true;
+                        logInfo(`Button click while initialising, queuing open request...`);
+
+                        // Replace icon with hourglass
+                        const iconElement = pluginButton.querySelector('i');
+                        if (iconElement) {
+                            // Store original icon
+                            pluginButton._originalIconClasses = iconElement.className;
+
+                            // Hourglass icon
+                            iconElement.className = 'fa-solid fa-spinner';
+                        }
+
+                        // Highlight button
+                        if (!localStorageItem.isAboveSignalCanvas) {
+                            const highlightStyle = document.createElement('style');
+                            highlightStyle.id = 'spectrum-graph-pending-highlight';
+                            highlightStyle.textContent = `
+                                #spectrum-graph-button {
+                                    background-color: var(--color-2) !important;
+                                    filter: brightness(120%);
+                                }
+                            `;
+                            document.head.appendChild(highlightStyle);
+                        }
+                    }
+                }
+            };
+
+            pluginButton.addEventListener('click', earlyClickHandler, true);
+
+            // Store reference to remove later
+            pluginButton._earlyClickHandler = earlyClickHandler;
+        }
+    });
+
+    buttonObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+// Function to check if plugin is fully initialised
+function checkPluginInitialization(buttonId) {
+    const maxWaitTime = 15000; // Maximum wait time
+    const checkInterval = 100; // Check interval
+    let elapsedTime = 0;
+
+    const initCheckInterval = setInterval(() => {
+        elapsedTime += checkInterval;
+
+        // Check if both WebSocket and initial data are ready
+        if (isWebSocketReady && isInitialDataLoaded) {
+            clearInterval(initCheckInterval);
+            isPluginInitialized = true;
+            logInfo(`Plugin initialised.`);
+            enableButtonInteractions(buttonId);
+
+            // Open graph if clicked while waiting
+            if (isPendingOpen) {
+                isPendingOpen = false;
+                isAlreadyLaunched = true;
+                logInfo(`Opening graph from queued click.`);
+
+                // Restore original icon
+                const pluginButton = document.getElementById(buttonId);
+                if (pluginButton) {
+                    const iconElement = pluginButton.querySelector('i');
+                    if (iconElement && pluginButton._originalIconClasses) {
+                        iconElement.className = pluginButton._originalIconClasses;
+                        delete pluginButton._originalIconClasses;
+                    }
+
+                    // Restore original tooltip
+                    if (pluginButton._originalTooltip !== undefined) {
+                        if (pluginButton._originalTooltip) {
+                            pluginButton.setAttribute('data-tooltip', pluginButton._originalTooltip);
+                        } else {
+                            pluginButton.removeAttribute('data-tooltip');
+                        }
+                        delete pluginButton._originalTooltip;
+                    }
+                }
+
+                // Remove highlight style then open
+                setTimeout(() => {
+                    const highlightStyle = document.getElementById('spectrum-graph-pending-highlight');
+                    if (highlightStyle) {
+                        highlightStyle.remove();
+                    }
+                }, 1200);
+
+                setTimeout(() => {
+                    if (!isGraphOpen) toggleSpectrum();
+                    isLaunchedEarly = true;
+                    setTimeout(() => {
+                        isLaunchedEarly = false;
+                    }, 500);
+                }, 800);
+            }
+        } else if (elapsedTime >= maxWaitTime) {
+            // Timeout, enable anyway
+            clearInterval(initCheckInterval);
+            isPluginInitialized = true;
+            logInfo(`Plugin initialisation timeout, enabling button anyway. WebSocket: ${isWebSocketReady}, Data: ${isInitialDataLoaded}`);
+            enableButtonInteractions(buttonId);
+
+            // Open graph if clicked while waiting
+            if (isPendingOpen) {
+                isPendingOpen = false;
+                logInfo(`Opening graph from queued click after timeout.`);
+
+                // Restore original icon
+                const pluginButton = document.getElementById(buttonId);
+                if (pluginButton) {
+                    const iconElement = pluginButton.querySelector('i');
+                    if (iconElement && pluginButton._originalIconClasses) {
+                        iconElement.className = pluginButton._originalIconClasses;
+                        delete pluginButton._originalIconClasses;
+                    }
+
+                    // Restore original tooltip
+                    if (pluginButton._originalTooltip !== undefined) {
+                        if (pluginButton._originalTooltip) {
+                            pluginButton.setAttribute('data-tooltip', pluginButton._originalTooltip);
+                        } else {
+                            pluginButton.removeAttribute('data-tooltip');
+                        }
+                        delete pluginButton._originalTooltip;
+                    }
+                }
+
+                // Remove highlight style then open
+                setTimeout(() => {
+                    const highlightStyle = document.getElementById('spectrum-graph-pending-highlight');
+                    if (highlightStyle) {
+                        highlightStyle.remove();
+                    }
+                }, 1200);
+
+                setTimeout(() => {
+                    if (!isGraphOpen) toggleSpectrum();
+                    isLaunchedEarly = true;
+                    setTimeout(() => {
+                        isLaunchedEarly = false;
+                    }, 500);
+                }, 800);
+            }
+        }
+    }, checkInterval);
+}
+
+// Function to enable button after plugin initialisation
+function enableButtonInteractions(buttonId) {
+    const quickLaunchDelay = Date.now();
+    const pluginButtonOnLaunch = document.getElementById('spectrum-graph-button');
+
+    if (!pluginButtonOnLaunch) {
+        logError(`Button not found when trying to enable.`);
+        return;
+    }
+
+    // Remove early click handler if it exists
+    if (pluginButtonOnLaunch._earlyClickHandler) {
+        pluginButtonOnLaunch.removeEventListener('click', pluginButtonOnLaunch._earlyClickHandler, true);
+        delete pluginButtonOnLaunch._earlyClickHandler;
+    }
+
+    function handleClickOnLaunch() {
+        if (isAlreadyLaunched || isLaunchedEarly) return;
+        logInfo(`Quick launch.`);
+        if (!localStorageItem.isAboveSignalCanvas) {
+            document.head.appendChild(Object.assign(document.createElement('style'), {
+              textContent: `
+                #spectrum-graph-button {
+                    background-color: var(--color-2) !important;
+                    filter: brightness(120%);
+                }
+              `
+            }));
+        }
+        setTimeout(() => {
+            if (!isGraphOpen && !localStorageItem.isAboveSignalCanvas) toggleSpectrum();
+            if (!localStorageItem.isAboveSignalCanvas) {
+                setTimeout(() => {
+                    document.head.appendChild(Object.assign(document.createElement('style'), {
+                      textContent: `
+                        #spectrum-graph-button {
+                            background-color: initial !important;
+                            filter: inherit;
+                        }
+                      `
+                    }));
+                }, 80);
+            }
+        }, quickLaunchValue - (Date.now() - quickLaunchDelay));
+    }
+
+    pluginButtonOnLaunch.addEventListener('click', handleClickOnLaunch, { once: true });
+    setTimeout(() => {
+        pluginButtonOnLaunch.removeEventListener('click', handleClickOnLaunch);
+    }, quickLaunchValue);
+
+    const buttonObserver = new MutationObserver(() => {
+        const $pluginButton = $(`#${buttonId}`);
+        if ($pluginButton.length > 0) {
+            setTimeout(() => {
+                $pluginButton.on('click', function() {
+                    // Code to execute on click
+                    if (drawAboveCanvasOverridePosition) {
+                        signalMeterDelay = 800;
+                        getCurrentDimensions();
+                    }
+                    toggleSpectrum();
+                });
+            }, quickLaunchValue);
+            buttonObserver.disconnect(); // Stop observing once button is found
+            // Additional code
+            const pluginButton = document.getElementById(`${buttonId}`);
+            if (pluginButton && window.innerWidth < 480 && window.innerHeight > window.innerWidth) {
+                pluginButton.setAttribute('data-tooltip', 'Resolution too low to display');
+            }
+        }
+    });
+
+    buttonObserver.observe(document.body, { childList: true, subtree: true });
+}
+
 // Create Spectrum Graph button
 function createButton(buttonId) {
     (function waitForFunction() {
@@ -109,66 +364,11 @@ function createButton(buttonId) {
                 addIconToPluginPanel(buttonId, "Spectrum", "solid", "chart-area", "Spectrum Graph");
                 functionFound = true;
 
-                // Launch on quick click
-                const quickLaunchDelay = Date.now();
-                const pluginButtonOnLaunch = document.getElementById('spectrum-graph-button');
-                function handleClickOnLaunch() {
-                    console.log(`[${pluginName}] Quick launch`);
-                    if (!localStorageItem.isAboveSignalCanvas) {
-                        document.head.appendChild(Object.assign(document.createElement('style'), {
-                          textContent: `
-                            #spectrum-graph-button {
-                                background-color: var(--color-2) !important;
-                                filter: brightness(120%);
-                            }
-                          `
-                        }));
-                    }
-                    setTimeout(() => {
-                        if (!isGraphOpen && !localStorageItem.isAboveSignalCanvas) toggleSpectrum();
-                        if (!localStorageItem.isAboveSignalCanvas) {
-                            setTimeout(() => {
-                                document.head.appendChild(Object.assign(document.createElement('style'), {
-                                  textContent: `
-                                    #spectrum-graph-button {
-                                        background-color: initial !important;
-                                        filter: inherit;
-                                    }
-                                  `
-                                }));
-                            }, 80);
-                        }
-                    }, quickLaunchValue - (Date.now() - quickLaunchDelay));
-                }
-                pluginButtonOnLaunch.addEventListener('click', handleClickOnLaunch, { once: true });
-                setTimeout(() => {
-                    //pluginButtonOnLaunch.disabled = true;
-                    pluginButtonOnLaunch.removeEventListener('click', handleClickOnLaunch);
-                }, quickLaunchValue); // 400 if button disabled
+                // Setup early click handler to queue clicks during initialisation
+                setupEarlyClickHandler(buttonId);
 
-                const buttonObserver = new MutationObserver(() => {
-                    const $pluginButton = $(`#${buttonId}`);
-                    if ($pluginButton.length > 0) {
-                        setTimeout(() => {
-                            $pluginButton.on('click', function() {
-                                // Code to execute on click
-                                if (drawAboveCanvasOverridePosition) {
-                                    signalMeterDelay = 800;
-                                    getCurrentDimensions();
-                                }
-                                toggleSpectrum();
-                            });
-                        }, quickLaunchValue); // 400 without quick launch
-                        buttonObserver.disconnect(); // Stop observing once button is found
-                        // Additional code
-                        const pluginButton = document.getElementById(`${buttonId}`);
-                        if (pluginButton && window.innerWidth < 480 && window.innerHeight > window.innerWidth) {
-                            pluginButton.setAttribute('data-tooltip', 'Resolution too low to display');
-                        }
-                    }
-                });
-
-                buttonObserver.observe(document.body, { childList: true, subtree: true });
+                // Wait for plugin initialisation before enabling button
+                checkPluginInitialization(buttonId);
             }
         });
 
@@ -177,7 +377,7 @@ function createButton(buttonId) {
         setTimeout(() => {
             observer.disconnect();
             if (!functionFound) {
-                console.error(`[${pluginName}] Function addIconToPluginPanel not found after ${maxWaitTime / 1000} seconds.`);
+                logError(`Function addIconToPluginPanel not found after ${maxWaitTime / 1000} seconds.`);
             }
         }, maxWaitTime);
     })();
@@ -268,7 +468,7 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
             if (useLegacyButtonSpacingBetweenCanvas) wrapperElement.append(document.createElement('br'));
             return buttonWrapper;
         } else {
-            console.error(`[${pluginName}] Standard button location not found. Unable to add button.`);
+            logError(`Standard button location not found. Unable to add button.`);
             return null;
         }
     }
@@ -456,30 +656,34 @@ async function setupSendSocket() {
         try {
             wsSendSocket = new WebSocket(WEBSOCKET_URL);
             wsSendSocket.onopen = () => {
-                console.log(`[${pluginName}] connected WebSocket`);
+                logInfo(`Connected WebSocket`);
+                isWebSocketReady = true; // WebSocket ready
 
                 wsSendSocket.onmessage = function(event) {
                     // Parse incoming JSON data
                     const data = JSON.parse(event.data);
                     const buttonQuery = document.querySelector('#spectrum-scan-button');
                     if (buttonQuery && data.hasOwnProperty('isScanning')) {
+                        tuningEnabled = true; // Enable mouse tuning
                         buttonQuery.style.cursor = 'pointer';
                         clearTimeout(buttonTimeout);
                     }
 
                     if (data.type === 'spectrum-graph') {
                         const buttonQuery = document.querySelector('#spectrum-scan-button');
+                        tuningEnabled = false; // Disable mouse tuning
                         if (buttonQuery) buttonQuery.style.cursor = 'wait';
                         clearTimeout(buttonTimeout);
                         buttonTimeout = setTimeout(function() {
+                            tuningEnabled = true; // Enable mouse tuning
                             if (buttonQuery) buttonQuery.style.cursor = 'pointer';
                         }, 3000);
-                        console.log(`[${pluginName}] command sent`);
+                        logInfo(`Command sent`);
                     }
 
                     // Handle 'sigArray' data
                     if (data.type === 'sigArray') {
-                        console.log(`[${pluginName}] received sigArray.`);
+                        logInfo(`Received sigArray.`);
                         sigArray = data.value;
                         if (sigArray.length > 0) {
                             // Signal calibration
@@ -491,7 +695,7 @@ async function setupSendSocket() {
                                     if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
                                     item.sig = sig.toFixed(2);
                                 });
-                                console.log(`[${pluginName}] calibrated sigArray.`);
+                                logInfo(`Calibrated sigArray.`);
                             }
 
                             if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
@@ -503,13 +707,13 @@ async function setupSendSocket() {
                                     console.log(`freq: ${item.freq}, sig: ${item.sig}`);
                                 });
                             } else {
-                                console.error(`[${pluginName}] expected array for sigArray, but received:`, data.value);
+                                logError(`Expected array for sigArray, but received:`, data.value);
                             }
                         }
                         getCurrentAntenna();
                     }
 
-                    // Scanner plugin code by Highpoint
+                    // Scanner plugin code by Highpoint2000
                     if (data.type === 'Scanner') {
                         const eventData = JSON.parse(event.data);
 
@@ -551,13 +755,14 @@ async function setupSendSocket() {
             };
 
             wsSendSocket.onclose = (event) => {
+                isWebSocketReady = false; // WebSocket not ready
                 setTimeout(function() {
-                    console.log(`[${pluginName}] WebSocket closed:`, event);
+                    logInfo(`WebSocket closed:`, event);
                 }, 400);
                 setTimeout(setupSendSocket, 5000); // Reconnect after 5 seconds
             };
         } catch (error) {
-            console.error(`[${pluginName}] failed to setup Send WebSocket:`, error);
+            logError(`Failed to setup Send WebSocket:`, error);
             setTimeout(setupSendSocket, 5000); // Retry after 5 seconds
         }
     }
@@ -600,7 +805,7 @@ function checkUpdate(setupOnly, pluginVersion, pluginName, urlUpdateLink, urlFet
 
             return version;
         } catch (error) {
-            console.error(`[${pluginName}] error fetching file:`, error);
+            logError(`Error fetching file:`, error);
             return null;
         }
     }
@@ -612,7 +817,7 @@ function checkUpdate(setupOnly, pluginVersion, pluginName, urlUpdateLink, urlFet
                 let updateConsoleText = "There is a new version of this plugin available";
                 // Any custom code here
                 updateText = updateConsoleText; // Spectrum Graph only
-                console.log(`[${pluginName}] ${updateConsoleText}`);
+                logInfo(`${updateConsoleText}`);
                 setupNotify(pluginVersion, newVersion, pluginName, urlUpdateLink);
             }
         }
@@ -684,12 +889,15 @@ function signalUnits() {
     }
     if (signalText !== prevSignalText) {
         setTimeout(drawGraph, drawGraphDelay);
-        console.log(`[${pluginName}] Signal unit changed.`);
+        logInfo(`Signal unit changed.`);
     }
     prevSignalText = signalText;
 }
 
-setInterval(signalUnits, 3000);
+setTimeout(() => {
+  signalUnits();
+  setInterval(signalUnits, 2000);
+}, 400);
 
 // Function to apply fade effect and transition styles
 function applyFadeEffect(buttonId, opacity, scale) {
@@ -760,10 +968,10 @@ function ScanButton() {
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
             canvasContainer.style.position = 'relative';
         } else {
-            console.error(`[${pluginName}] Parent container is not .canvas-container`);
+            logError(`Parent container is not .canvas-container`);
         }
     } else {
-        console.error(`[${pluginName}] #sdr-graph not found`);
+        logError(`#sdr-graph not found`);
     }
 
     // Locate canvas and its parent container
@@ -775,10 +983,10 @@ function ScanButton() {
             canvas.style.cursor = 'crosshair';
             canvasContainer.appendChild(spectrumButton);
         } else {
-            console.error(`[${pluginName}] Parent container for button not found`);
+            logError(`Parent container for button not found`);
         }
     } else {
-        console.error(`[${pluginName}] #sdr-graph-button-container not found`);
+        logError(`#sdr-graph-button-container not found`);
     }
 
     // Add styles
@@ -922,10 +1130,10 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
                 toggleButton.style.right = `${parseInt(spectrumButton.style.right, 10) + 40}px`; // 40px offset
             }
         } else {
-            console.error(`[${pluginName}] Parent container is not .canvas-container`);
+            logError(`Parent container is not .canvas-container`);
         }
     } else {
-        console.error(`[${pluginName}] #sdr-graph not found`);
+        logError(`#sdr-graph not found`);
     }
 
     // Add styles
@@ -978,9 +1186,13 @@ function insertUpdateText(updateText) {
     updateTextElement.classList.add('spectrum-graph-update-text');
     updateTextElement.textContent = updateText;
 
+    // Vertical position
+    let textTop = 32; // normal
+    if (localStorageItem.isAboveSignalCanvas === true) textTop = 32 - canvasFullHeight - 2; 
+
     // Style the text
     updateTextElement.style.position = 'absolute';
-    updateTextElement.style.top = '32px';
+    updateTextElement.style.top = `${textTop}px`; // Consider isAboveSignalCanvas
     updateTextElement.style.left = '40px';
     updateTextElement.style.color = 'var(--color-5-transparent)';
     updateTextElement.style.fontSize = '14px';
@@ -1001,10 +1213,10 @@ function insertUpdateText(updateText) {
                 canvasContainer.appendChild(updateTextElement);
             }, 300);
         } else {
-            console.error(`[${pluginName}] Parent container is not .canvas-container`);
+            logError(`Parent container is not .canvas-container`);
         }
     } else {
-        console.error(`[${pluginName}] #sdr-graph not found`);
+        logError(`#sdr-graph not found`);
     }
 
     function resetUpdateTextTimeout() {
@@ -1038,7 +1250,7 @@ function checkAdminMode() {
     isTuneAuthenticated = bodyText.includes("You are logged in as an administrator.") || bodyText.includes("You are logged in as an adminstrator.") || bodyText.includes("You are logged in and can control the receiver.");
     if (isTuneAuthenticated || (isTunerLocked && isTuneAuthenticated) || (!isTunerLocked && !isTuneAuthenticated)) isTuningAllowed = true;
     if (isTuneAuthenticated) {
-        console.log(`[${pluginName}] Logged in as administrator`);
+        logInfo(`Logged in as administrator`);
     }
 }
 
@@ -1088,7 +1300,7 @@ async function initializeGraph() {
                         let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
                         sig = parseFloat(sig);
                         if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
-                        console.log(`[${pluginName}] calibrated sigArray.`);
+                        logInfo(`Calibrated sigArray.`);
                     }
 
                     return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
@@ -1102,22 +1314,26 @@ async function initializeGraph() {
                         console.log(`freq: ${item.freq}, sig: ${item.sig}`);
                     });
                 } else {
-                    console.error(`[${pluginName}] expected array for sigArray, but received:`, sigArray);
+                    logError(`Expected array for sigArray, but received:`, sigArray);
                 }
             }
         } else {
-            console.log(`[${pluginName}] found no data available at page load.`);
+            logInfo(`Found no data available at page load.`);
             getDummyData();
         }
     } catch (error) {
         graphError = true;
-        console.error(`[${pluginName}] error during graph initialisation.`);
+        logError(`Error during graph initialisation.`);
         getDummyData();
     }
     getCurrentAntenna();
 
     const existingText = document.querySelector('.spectrum-graph-update-text');
     if (existingText) existingText.remove();
+
+    // Initial data loaded
+    isInitialDataLoaded = true;
+    //logInfo(`initial data loaded.`);
 }
 
 function getDummyData() {
@@ -1156,7 +1372,7 @@ async function getCurrentAntenna() {
                 // Data of current antenna
                 if (data.ant) {
                     currentAntenna = data.ant;
-                    console.log(`[${pluginName}] data found for antenna ${data.ant}.`);
+                    logInfo(`Data found for antenna ${data.ant}.`);
 
                     const existingText = document.querySelector('.spectrum-graph-update-text');
                     if (existingText) existingText.remove();
@@ -1170,10 +1386,10 @@ async function getCurrentAntenna() {
                 if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
             })
             .catch(error => {
-                console.error(`[${pluginName}] error fetching api data:`, error);
+                logError(`Error fetching api data:`, error);
             });
     } catch (error) {
-        console.error(`[${pluginName}] error fetching current antenna:`, error);
+        logError(`Error fetching current antenna:`, error);
     }
 }
 
@@ -1368,6 +1584,7 @@ function adjustSdrGraphCanvasHeight() {
 
 // Toggle spectrum state and update UI accordingly
 function toggleSpectrum() {
+    if (isLaunchedEarly) return;
     // Do not proceed to open canvas if signal canvas is hidden
     if (!document.querySelector("#signal-canvas")?.offsetParent && !isSpectrumOn) return;
 
@@ -1437,7 +1654,7 @@ function observeFrequency() {
 
         observer.observe(dataFrequencyElement, config);
     } else {
-        console.log(`[${pluginName}] #data-frequency missing`);
+        logInfo(`#data-frequency missing`);
     }
 }
 observeFrequency();
@@ -1455,6 +1672,7 @@ function initializeCanvasInteractions() {
     tooltip.style.background = 'var(--color-3-transparent)';
     tooltip.style.border = '1px solid var(--color-3)';
     tooltip.style.color = 'var(--color-main-2)';
+    tooltip.style.filter = 'contrast(110%)';
     tooltip.style.padding = '4px 8px 4px 8px';
     tooltip.style.borderRadius = '8px';
     tooltip.style.fontSize = '12px';
@@ -1504,16 +1722,75 @@ function initializeCanvasInteractions() {
         }
 
         if (closestPoint) {
-            const signalValue = Number(closestPoint.sig);
+            const originalSignalValue = Number(closestPoint.sig);
+
+            let signalValue;
+            if (!CORRECT_TOOLTIP_PEAKS) {
+                signalValue = Number(closestPoint.sig);
+            } else {
+                const idx = sigArray.indexOf(closestPoint);
+                const base = Number(closestPoint.sig);
+
+                let left = null, right = null;
+
+                if (idx > 0) left = Number(sigArray[idx - 1].sig);
+                if (idx < sigArray.length - 1) right = Number(sigArray[idx + 1].sig);
+
+                let maxSignal = base;
+
+                // ====================================
+                // Parameters for CORRECT_TOOLTIP_PEAKS
+                // ====================================
+                const BASE_THRESHOLD = 33;
+                const STRONG_SIGNAL_FACTOR = 0.26;
+                const MIN_SIGNAL_FRACTION = 0.75;
+
+                if (left !== null && right !== null) {
+                    const neighbourDiff = Math.abs(left - right);
+                    const maxNeighbour = Math.max(left, right);
+
+                    // Adaptive threshold for SAME_PEAK_THRESHOLD
+                    const dynamicThreshold = Math.max(BASE_THRESHOLD, maxNeighbour * STRONG_SIGNAL_FACTOR);
+
+                    // Smooth adaptive minimum signal to allow boosting
+                    const minSignalToBoost = maxNeighbour * MIN_SIGNAL_FRACTION;
+
+                    // Only boost if neighbours are close enough AND current signal is strong enough
+                    if (neighbourDiff <= dynamicThreshold && base >= minSignalToBoost) {
+                        maxSignal = Math.max(base, left, right);
+                    }
+
+                } else if (left !== null || right !== null) {
+                    const neighbour = left !== null ? left : right;
+
+                    const dynamicThreshold = Math.max(BASE_THRESHOLD, neighbour * STRONG_SIGNAL_FACTOR);
+                    const minSignalToBoost = neighbour * MIN_SIGNAL_FRACTION;
+
+                    if (Math.abs(neighbour - base) <= dynamicThreshold && base >= minSignalToBoost) {
+                        maxSignal = Math.max(base, neighbour);
+                    }
+                }
+
+                signalValue = maxSignal;
+            }
 
             // Calculate tooltip content
             const freqText = `${freq.toFixed(1)} MHz`;
             const signalText = `, ${Math.round(signalValue.toFixed(2) - sigOffset).toFixed(0)} ${sigDesc}`;
+            const originalSignalValueTooltip = Math.round(originalSignalValue.toFixed(2) - sigOffset).toFixed(0);
 
             // Style HTML
+            const tooltipCorrectionDebugLevel = 0; // 0, 1, or 2
+
             tooltip.innerHTML = `
                 <span style="font-weight: 600;">${freqText}</span>
-                <span style="font-weight: 400;">${signalText}</span>
+                <span style="font-weight: 400;">
+                    ${tooltipCorrectionDebugLevel === 0 ? signalText :
+                      tooltipCorrectionDebugLevel === 1 ? signalText + (Math.round(signalValue) - Math.round(originalSignalValue) > 1 ? " *" : "") :
+                      tooltipCorrectionDebugLevel === 2 ? signalText + (Math.round(signalValue) - Math.round(originalSignalValue) > 1 ? ` (${parseInt(originalSignalValueTooltip)})` : "") :
+                      signalText // fallback
+                    }
+                </span>
             `;
 
             // Calculate position of circle
@@ -1562,7 +1839,7 @@ function initializeCanvasInteractions() {
     let wasDragging = false;
 
     function handleClick(event) {
-        if (!ENABLE_MOUSE_CLICK_TO_TUNE) return;
+        if (!ENABLE_MOUSE_CLICK_TO_TUNE || !tuningEnabled) return;
 
         // Prevent frequency selection if is was a drag operation
         if (wasDragging) {
@@ -1583,7 +1860,7 @@ function initializeCanvasInteractions() {
 
         // Send WebSocket command
         const command = `T${Math.round(freq.toFixed(1) * 1000)}`;
-        console.log(`[${pluginName}] Sending command "${command}"`);
+        logInfo(`Sending command "${command}"`);
         socket.send(command);
         setTimeout(() => {
             setTimeout(drawGraph, drawGraphDelay);
@@ -1592,7 +1869,7 @@ function initializeCanvasInteractions() {
 
     // Function to control frequency via mouse wheel
     function handleWheelScroll(event) {
-        if (ENABLE_MOUSE_SCROLL_WHEEL) {
+        if (ENABLE_MOUSE_SCROLL_WHEEL && tuningEnabled) {
             event.preventDefault(); // Prevent webpage scrolling
 
             // Normalize deltaY value for cross-browser consistency
@@ -1711,7 +1988,7 @@ $(window).on('load', function() {
             const newColor = getBackgroundColor(wrapperOuter);
             if (newColor !== currentBackgroundColor) {
                 setTimeout(() => {
-                    console.log(`[${pluginName}] new background colour.`);
+                    logInfo(`New background colour.`);
                     setTimeout(drawGraph, drawGraphDelay);
                 }, 400);
             }
@@ -1768,7 +2045,7 @@ function drawGraph() {
 
     // Check if sigArray has data
     if (!sigArray || sigArray.length === 0) {
-        //console.error(`[${pluginName}] sigArray is empty or not defined`);
+        //logError(`sigArray is empty or not defined`);
         return;
     }
 
@@ -1790,15 +2067,15 @@ function drawGraph() {
         // Save current graph outline
         if (outlinePointsSavePermission) {
             if (!Array.isArray(outlinePoints)) {
-                console.error(`[${pluginName}] Invalid outline points. Must be an array.`);
+                logError(`Invalid outline points. Must be an array.`);
                 return;
             }
 
             try {
                 localStorage.setItem(`enableSpectrumGraphOutline${currentAntenna}`, JSON.stringify(outlinePoints));
-                console.log(`[${pluginName}] Graph outline saved for antenna ${currentAntenna}.`);
+                logInfo(`Graph outline saved for antenna ${currentAntenna}.`);
             } catch (error) {
-                console.error(`[${pluginName}] failed to save graph outline:`, error);
+                logError(`Failed to save graph outline:`, error);
             }
 
             outlinePointsSavePermission = false;
@@ -1807,19 +2084,19 @@ function drawGraph() {
         // Load saved graph outline
         const savedData = localStorage.getItem(`enableSpectrumGraphOutline${currentAntenna}`);
         if (!savedData) {
-            console.log(`[${pluginName}] No saved graph outline found.`);
+            logInfo(`No saved graph outline found.`);
             return;
         }
 
         try {
             savedOutline = JSON.parse(savedData);
         } catch (error) {
-            console.error(`[${pluginName}] Failed to parse saved graph outline:`, error);
+            logError(`Failed to parse saved graph outline:`, error);
             return;
         }
 
         if (!Array.isArray(savedOutline) || savedOutline.length === 0) {
-            console.log(`[${pluginName}] Saved graph outline is empty or invalid.`);
+            logInfo(`Saved graph outline is empty or invalid.`);
             return;
         }
 
@@ -2103,12 +2380,12 @@ function drawGraph() {
         }
     }
 
-    // Scanner plugin code by Highpoint
+    // Scanner plugin code by Highpoint2000
     if (ScannerIsScanning) {
         if (ScannerSpectrumLimiterValue !== 100 && ScannerSpectrumLimiterValue !== 0 && (ScannerMode === 'spectrum' || ScannerMode === 'spectrumBL' || ScannerMode === 'difference' || ScannerMode === 'differenceBL')) {
             if (ScannerModeTemp !== ScannerMode) {
                 ScannerModeTemp = ScannerMode;
-                console.log(`[${pluginName}] Scanner plugin mode changed to '${ScannerMode}'`);
+                logInfo(`Scanner plugin mode changed to '${ScannerMode}'`);
             }
             const yPositionLimiterValue = height - 20 - ((ScannerSpectrumLimiterValue - minSig) * yScale);
 
@@ -2125,12 +2402,14 @@ function drawGraph() {
             ctx.stroke();
 
             // Write the SpectrumLimiterValue below the line
-            ctx.fillStyle = 'rgba(226, 61, 1, 1.0)';
+            ctx.fillStyle = 'rgba(232, 64, 4, 1.0)';
             ctx.font = '12px Arial, Titillium Web, Helvetica';
             ctx.textAlign = 'left';
+            ctx.filter = 'drop-shadow(0.25px 0.25px 0px rgba(0, 0, 0, 0.5))';
             let ScannerSpectrumLimiterValueOffset = 0;
             if (ScannerSpectrumLimiterValue && ScannerSensitivity && ScannerSpectrumLimiterValue - ScannerSensitivity > 5 && ScannerSpectrumLimiterValue - ScannerSensitivity < 20) ScannerSpectrumLimiterValueOffset = 50;
             ctx.fillText(`${Math.round(Number(ScannerSpectrumLimiterValue.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + (5 + ScannerSpectrumLimiterValueOffset), yPositionLimiterValue + 15);
+            ctx.filter = 'none';
         }
 
         if (ScannerSensitivity !== 0 && ScannerSensitivity !== 100 && ScannerMode !== '') {
@@ -2149,10 +2428,12 @@ function drawGraph() {
             ctx.stroke();
 
             // Write the Sensitivity value above the line
-            ctx.fillStyle = 'rgba(48, 96, 240, 1.0)';
+            ctx.fillStyle = 'rgba(60, 104, 248, 1.0)';
             ctx.font = '12px Arial, Titillium Web, Helvetica';
             ctx.textAlign = 'left';
+            ctx.filter = 'drop-shadow(0.25px 0.25px 0px rgba(0, 0, 0, 0.5))';
             ctx.fillText(`${Math.round(Number(ScannerSensitivity.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + 5, yPositionScannerSensitivityValue - 5);
+            ctx.filter = 'none';
         }
     } // **
 
@@ -2166,25 +2447,44 @@ function drawGraph() {
         } else {
             y = height - 20 - point.sig * yScale;
         }
-
-        // Draw current frequency line
-        if (Number(dataFrequencyValue).toFixed(1) == Number(point.freq).toFixed(1)) {
-            // Calculate the x-coordinates for the white vertical line
-            let highlightBandwidthLow = 0.1;
-            let highlightBandwidthHigh = 0.1;
-            const highlightFreq = Number(dataFrequencyValue);
-            if (highlightFreq === minFreq) highlightBandwidthLow = 0.0;
-            if (highlightFreq === minFreq) highlightBandwidthHigh = 0.1;
-            leftX = xOffset + (highlightFreq - highlightBandwidthLow - minFreq) * xScale; // 0.1 MHz to the left
-            rightX = xOffset + (highlightFreq + highlightBandwidthHigh - minFreq) * xScale; // 0.1 MHz to the right
-        }
     });
+
+    // Draw current frequency line
+    const highlightFreq = Number(dataFrequencyValue);
+    // Only draw if the frequency is within or near the graph range
+    if (highlightFreq >= minFreq - 0.1 && highlightFreq <= maxFreq + 0.1) {
+        // Calculate the x-coordinates for the white vertical line
+        let highlightBandwidthLow = 0.1;
+        let highlightBandwidthHigh = 0.1;
+
+        // Adjust bandwidth if at the edge
+        if (highlightFreq < minFreq) {
+            highlightBandwidthLow = 0.0;
+            highlightBandwidthHigh = 0.1;
+        }
+
+        // Left and right X calculations for the highlight region
+        leftX = xOffset + (highlightFreq - highlightBandwidthLow - minFreq) * xScale;
+        rightX = xOffset + (highlightFreq + highlightBandwidthHigh - minFreq) * xScale;
+
+        // Ensure that leftX doesn't overflow to the left
+        leftX = Math.max(leftX, xOffset);  // Prevent going past the left edge
+
+        // Ensure that rightX doesn't overflow past the right edge
+        rightX = Math.min(rightX, xOffset + (maxFreq - minFreq) * xScale);  // Prevent going past the right edge
+    } else {
+        // Don't draw if frequency is completely out of range
+        leftX = undefined;
+        rightX = undefined;
+    }
 
     // Set style for white line
     ctx.fillStyle = 'rgba(224, 224, 240, 0.3)';
 
     // Draw vertical highlight region
-    ctx.fillRect(leftX, 9, rightX - leftX, height - 29); // From top to bottom of graph
+    if (leftX !== undefined && rightX !== undefined) {
+        ctx.fillRect(leftX, 9, rightX - leftX, height - 29); // From top to bottom of graph
+    }
 
     const colorLines = getComputedStyle(document.documentElement).getPropertyValue('--color-5').trim();
 
@@ -2255,7 +2555,7 @@ function drawGraph() {
 
     if (graphError) {
         graphError = false;
-        insertUpdateText(`[${pluginName}] error during graph initialisation. The server may need to be restarted.`);
+        insertUpdateText(`[${pluginName}] Error during graph initialisation. The server may need to be restarted.`);
     }
 
     return updateBounds(xScale, minFreq, freqRange, yScale);

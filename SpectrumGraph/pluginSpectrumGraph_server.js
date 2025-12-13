@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.6 by AAD
+    Spectrum Graph v1.2.7 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -28,7 +28,6 @@ const externalWsUrl = `ws://127.0.0.1:${webserverPort}`;
 
 // let variables
 let extraSocket, textSocket, textSocketLost, messageParsed, messageParsedTimeout, startTime, tuningLowerLimitScan, tuningUpperLimitScan, tuningLowerLimitOffset, tuningUpperLimitOffset, debounceTimer, ipTimeout;
-let fmLowerLimit = 86; // Match dummyFreqStart value (default: 86)
 let disableScanBelowFmLowerLimit = false;
 let ipAddress = externalWsUrl;
 let currentFrequency = 0;
@@ -85,6 +84,7 @@ let rescanDelay = 3; // seconds
 let tuningRange = 0; // MHz
 let tuningStepSize = 50; // kHz
 let tuningBandwidth = 56; // kHz
+let fmLowerLimit = 86; // Match dummyFreqStart value (default: 86)
 let warnIncompleteData = false; // Warn about incomplete data
 let logLocalCommands = true; // Log locally sent commands
 
@@ -93,12 +93,13 @@ const defaultConfig = {
     tuningRange: 0,
     tuningStepSize: 50,
     tuningBandwidth: 56,
+    fmLowerLimit: 86,
     warnIncompleteData: false,
     logLocalCommands: true
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'warnIncompleteData', 'logLocalCommands'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'warnIncompleteData', 'logLocalCommands'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -139,6 +140,7 @@ function loadConfigFile(isReloaded) {
             tuningRange = !isNaN(Number(config.tuningRange)) ? Number(config.tuningRange) : defaultConfig.tuningRange;
             tuningStepSize = !isNaN(Number(config.tuningStepSize)) ? Number(config.tuningStepSize) : defaultConfig.tuningStepSize;
             tuningBandwidth = !isNaN(Number(config.tuningBandwidth)) ? Number(config.tuningBandwidth) : defaultConfig.tuningBandwidth;
+            fmLowerLimit = !isNaN(Number(config.fmLowerLimit)) ? Number(config.fmLowerLimit) : defaultConfig.fmLowerLimit;
             warnIncompleteData = typeof config.warnIncompleteData === 'boolean' ? config.warnIncompleteData : defaultConfig.warnIncompleteData;
             logLocalCommands = typeof config.logLocalCommands === 'boolean' ? config.logLocalCommands : defaultConfig.logLocalCommands;
 
@@ -560,7 +562,7 @@ function waitForTextSocket() { // First run begins when default frequency is det
         // Scan additional antennas
         if (antennaResponse.enabled) {
             // Determine scaling factor based on tuningStepSize
-            const scalingFactor = 100 / tuningStepSize;
+            const scalingFactor = (96 / tuningStepSize) + (1 - ((fmLowerLimit || 88) / 88));
 
             const antennas = [
                 { enabled: antennaResponse.ant2.enabled, command: 'Z1' },
@@ -568,22 +570,21 @@ function waitForTextSocket() { // First run begins when default frequency is det
                 { enabled: antennaResponse.ant4.enabled, command: 'Z3' }
             ];
 
-            for (let i = 0; i < antennas.length; i++) {
-                const antenna = antennas[i];
-                const command = antenna.enabled ? antenna.command : 'Z0';
+            // Filter out enabled antennas
+            const enabledAntennas = antennas.filter(antenna => antenna.enabled);
 
-                // Calculate time offset considering the scaling factor
+            enabledAntennas.forEach((antenna, i) => {
                 const timeOffset = initialDelay + (3000 * scalingFactor) + (3600 * i * scalingFactor);
 
-                setTimeout(() => sendCommandToClient(command), timeOffset);
+                // Send command to client
+                setTimeout(() => sendCommandToClient(antenna.command), timeOffset);
 
-                if (antenna.enabled) {
-                    setTimeout(() => restartScan('scan'), timeOffset + 600);
-                }
-            }
+                // Scan
+                setTimeout(() => restartScan('scan'), timeOffset + 600);
+            });
 
             // End of first run (antenna switch enabled)
-            const finalTimeOffset = initialDelay + (3000 * scalingFactor) + (3600 * antennas.length * scalingFactor);
+            const finalTimeOffset = initialDelay + (3000 * scalingFactor) + (3600 * enabledAntennas.length * scalingFactor);
             firstRunComplete(finalTimeOffset);
         } else {
             // End of first run (antenna switch disabled)
@@ -834,7 +835,7 @@ function startScan(command) {
             });
             extraSocket.send(messageClient);
         } catch (error) {
-            logError(`${pluginName} scan incomplete, invalid 'U' value, error:`, error.message);
+            logError(`${pluginName} scan incomplete, invalid response from device (invalid 'U' value), error:`, error.message);
         }
         isScanHalted(true);
     })();
