@@ -37,9 +37,9 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 
 v1.2.7
 ------
-* Added option in `SpectrumGraph.json` to correct inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps
-* Reduced unnecessary startup time for multiple antennas
-* Relocated `fmLowerLimit` to config file
+* Added `pluginSpectrumGraph.js` option to correct inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps
+* Reduced unnecessary startup time when using antenna switch
+* Relocated `fmLowerLimit` to `SpectrumGraph.json` config file
 * Minor visual fixes
 
 v1.2.6
