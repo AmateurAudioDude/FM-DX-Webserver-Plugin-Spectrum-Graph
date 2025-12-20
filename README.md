@@ -1,5 +1,20 @@
 # Spectrum Graph plugin for FM-DX Webserver
 
+This is a customized fork of the original Spectrum Graph plugin.
+
+## Fork Differences
+
+- Adds a 3.5 mode with a dedicated button to switch the graph to 80–88 MHz, plus a Normal button to return to full span.
+- 3.5 mode triggers a fast scan limited to 80–88 MHz; Normal mode restores the default scan span without auto-scanning.
+- Removes the remote update check (no GitHub fetch/update notification).
+
+## Changes In This Branch
+
+- Adds FM/3.5 span buttons with consistent spacing and above-canvas positioning.
+- Forces 3.5 scans to run only 80–88 MHz on the server for faster sweeps.
+- Defaults to FM span on plugin open and caches full-span data for quick restore.
+- Fixes tooltip/marker behavior to respect the active span.
+
 This plugin scans the FM radio band in under 1.5 seconds, then displayed in a spectrum window.
 
 ![spectrum_graph](https://github.com/user-attachments/assets/e1383c27-2e29-4231-b8d3-a9d70c469944)

@@ -22,10 +22,6 @@ const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pix
 
 const pluginVersion = '1.2.7';
 const pluginName = "Spectrum Graph";
-const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
-const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
-const pluginSetupOnlyNotify = false;
-const CHECK_FOR_UPDATES = true;
 
 // const variables
 const debug = false;
@@ -35,6 +31,8 @@ const drawGraphDelay = 10;
 const resizeEdge = 20;
 const canvasWidthOffset = 2;
 const canvasHeightOffset = 2;
+const BUTTON_SPACING = 40;
+const BUTTON_RIGHT_BASE = 16;
 const windowHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
 const topValue = BORDERLESS_THEME ? '12px' : '14px';
 
@@ -74,6 +72,7 @@ let xOffset = 30;
 let outlinePoints = []; // Outline data for localStorage
 let outlinePointsSavePermission = false;
 let sigArray = [];
+let fullSpanSigArrayCache = [];
 let minSig; // Graph value
 let maxSig; // Graph value
 let minSigOutline; // Outline value
@@ -86,6 +85,8 @@ let buttonTimeout;
 let removeUpdateTextTimeout;
 let updateText;
 let wsSendSocket;
+let autoSpanScanCooldown = false;
+let graphSigArraySpanCache = [];
 let signalMeterDelay = 0;
 let tuningEnabled = true;
 
@@ -104,6 +105,7 @@ localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphF
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
 localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';     // Move above signal graph canvas
 localStorageItem.disableNoiseFloorLabel = localStorage.getItem('enableSpectrumHideNoiseFloorLabel') === 'true';     // Display noise floor signal label
+localStorageItem.enableLowFmSpan = localStorage.getItem('enableSpectrumGraphLowFmSpan') === 'true';                 // Toggle 80-88 MHz span
 
 function logInfo(...msg) {
   console.log(`[${pluginName}]`, ...msg);
@@ -111,6 +113,23 @@ function logInfo(...msg) {
 
 function logError(...msg) {
   console.error(`[${pluginName}]`, ...msg);
+}
+
+function cacheFullSpanSigArray(nextSigArray) {
+    if (!Array.isArray(nextSigArray) || nextSigArray.length === 0) return;
+
+    const numericFreqs = nextSigArray
+        .map(item => Number(item.freq))
+        .filter(freq => !Number.isNaN(freq));
+
+    if (numericFreqs.length === 0) return;
+
+    const minFreqValue = Math.min(...numericFreqs);
+    const maxFreqValue = Math.max(...numericFreqs);
+    const isFullSpan = (maxFreqValue - minFreqValue) >= 10 && maxFreqValue >= 88.5;
+    if (isFullSpan) {
+        fullSpanSigArrayCache = nextSigArray.map(item => ({ ...item }));
+    }
 }
 
 // Function to handle early button click
@@ -535,7 +554,7 @@ function isDrawAboveCanvas() {
 
         const newCanvasStyle = `
             .canvas-container { overflow: ${newPosition ? 'visible' : 'hidden'}; }
-            #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button, #draw-above-canvas {
+            #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button, #draw-above-canvas, #span-3-5-button, #span-fm-button {
                 margin-top: ${newPosition ? -canvasFullHeight - 2 : 0}px;
             }
         `;
@@ -685,6 +704,7 @@ async function setupSendSocket() {
                     if (data.type === 'sigArray') {
                         logInfo(`Received sigArray.`);
                         sigArray = data.value;
+                        cacheFullSpanSigArray(sigArray);
                         if (sigArray.length > 0) {
                             // Signal calibration
                             if (CAL90000 || CAL95500 || CAL100500 || CAL105500) {
@@ -769,99 +789,6 @@ async function setupSendSocket() {
 }
 // WebSocket and scanner button initialisation
 setupSendSocket();
-
-// Function for update notification in /setup
-function checkUpdate(setupOnly, pluginVersion, pluginName, urlUpdateLink, urlFetchLink) {
-    if (setupOnly && window.location.pathname !== '/setup') return;
-
-    // Function to check for updates
-    async function fetchFirstLine() {
-        const urlCheckForUpdate = urlFetchLink;
-
-        try {
-            const response = await fetch(urlCheckForUpdate);
-            if (!response.ok) {
-                throw new Error(`[${pluginName}] update check HTTP error! status: ${response.status}`);
-            }
-
-            const text = await response.text();
-            const lines = text.split('\n');
-
-            let version;
-
-            if (lines.length > 2) {
-                const versionLine = lines.find(line => line.includes("const pluginVersion =") || line.includes("const plugin_version ="));
-                if (versionLine) {
-                    const match = versionLine.match(/const\s+plugin[_vV]ersion\s*=\s*['"]([^'"]+)['"]/);
-                    if (match) {
-                        version = match[1];
-                    }
-                }
-            }
-
-            if (!version) {
-                version = lines[0]; // Fallback to first line
-            }
-
-            return version;
-        } catch (error) {
-            logError(`Error fetching file:`, error);
-            return null;
-        }
-    }
-
-    // Check for updates
-    fetchFirstLine().then(newVersion => {
-        if (newVersion) {
-            if (newVersion !== pluginVersion) {
-                let updateConsoleText = "There is a new version of this plugin available";
-                // Any custom code here
-                updateText = updateConsoleText; // Spectrum Graph only
-                logInfo(`${updateConsoleText}`);
-                setupNotify(pluginVersion, newVersion, pluginName, urlUpdateLink);
-            }
-        }
-    });
-
-    function setupNotify(pluginVersion, newVersion, pluginName, urlUpdateLink) {
-        if (window.location.pathname === '/setup') {
-          const pluginSettings = document.getElementById('plugin-settings');
-          if (pluginSettings) {
-            const currentText = pluginSettings.textContent.trim();
-            const newText = `<a href="${urlUpdateLink}" target="_blank">[${pluginName}] Update available: ${pluginVersion} --> ${newVersion}</a><br>`;
-
-            if (currentText === 'No plugin settings are available.') {
-              pluginSettings.innerHTML = newText;
-            } else {
-              pluginSettings.innerHTML += ' ' + newText;
-            }
-          }
-
-          const updateIcon = document.querySelector('.wrapper-outer #navigation .sidenav-content .fa-puzzle-piece') || document.querySelector('.wrapper-outer .sidenav-content') || document.querySelector('.sidenav-content');
-
-          const redDot = document.createElement('span');
-          redDot.style.display = 'block';
-          redDot.style.width = '12px';
-          redDot.style.height = '12px';
-          redDot.style.borderRadius = '50%';
-          redDot.style.backgroundColor = '#FE0830' || 'var(--color-main-bright)'; // Prefer set colour over theme colour
-          redDot.style.marginLeft = '82px';
-          redDot.style.marginTop = '-12px';
-
-          updateIcon.appendChild(redDot);
-        }
-    }
-}
-
-if (CHECK_FOR_UPDATES) {
-    checkUpdate(
-        pluginSetupOnlyNotify,  // Check only in /setup
-        pluginVersion,          // Plugin version (string)
-        pluginName,             // Plugin name
-        pluginHomepageUrl,      // Update link URL
-        pluginUpdateUrl,        // Update check URL
-    );
-}
 
 // Signal units
 prevSignalText = signalText;
@@ -994,7 +921,7 @@ function ScanButton() {
     .rectangular-spectrum-button {
         position: absolute;
         top: ${topValue};
-        right: 16px;
+        right: ${BUTTON_RIGHT_BASE}px;
         opacity: 0.8;
         border-radius: 5px;
         padding: 5px 10px;
@@ -1017,14 +944,15 @@ function ScanButton() {
     /*
     ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,                ButtonPosition)
     */
-    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',   'Hold peaks'); //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
-    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96',   'Visually smooth graph edges');
-    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136',  'Toggle between relative or fixed scale');
-    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176',  'Auto baseline (adjust graph for noise floor)');
+    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   `${BUTTON_RIGHT_BASE + (BUTTON_SPACING * 1)}`,   'Hold peaks'); //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
+    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    `${BUTTON_RIGHT_BASE + (BUTTON_SPACING * 2)}`,   'Visually smooth graph edges');
+    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           `${BUTTON_RIGHT_BASE + (BUTTON_SPACING * 3)}`,   'Toggle between relative or fixed scale');
+    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 `${BUTTON_RIGHT_BASE + (BUTTON_SPACING * 4)}`,   'Auto baseline (adjust graph for noise floor)');
+    createSpanModeButtons();
     if (drawAboveCanvasIsPossible) {
     ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph', 
                                               drawAboveCanvasOverridePosition ? 'turn-down' : 
-                                                                                'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            '216',  'Move spectrum graph above signal graph');
+                                                                                'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            `${BUTTON_RIGHT_BASE + (BUTTON_SPACING * 7)}`,  'Move spectrum graph above signal graph');
 
         const drawAboveSignalCanvasButton = document.getElementById('draw-above-canvas');
         drawAboveSignalCanvasButton.addEventListener('click', function() {
@@ -1046,6 +974,8 @@ function ScanButton() {
     applyFadeEffect('smoothing-on-off-button', 0, 0.96);
     applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
     applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
+    applyFadeEffect('span-3-5-button', 0, 0.96);
+    applyFadeEffect('span-fm-button', 0, 0.96);
     applyFadeEffect('draw-above-canvas', 0, 0.96);
 
     setTimeout(() => {
@@ -1055,6 +985,8 @@ function ScanButton() {
         applyFadeEffect('smoothing-on-off-button', 0.8, 1);
         applyFadeEffect('fixed-dynamic-on-off-button', 0.8, 1);
         applyFadeEffect('auto-baseline-on-off-button', 0.8, 1);
+        applyFadeEffect('span-3-5-button', 0.8, 1);
+        applyFadeEffect('span-fm-button', 0.8, 1);
         applyFadeEffect('draw-above-canvas', 0.8, 1);
     }, 40);
 
@@ -1065,15 +997,48 @@ function ScanButton() {
     sdrGraphButtonContainer.style.opacity = 0.8;
     sdrGraphButtonContainer.style.transition = 'opacity 0.5s ease';
 
-    sdrGraphCSS.addEventListener('mouseover', () => {
+    sdrGraphCSS.addEventListener('mouseenter', () => {
       sdrGraphButtonContainer.style.transition = 'opacity 0.5s ease';
       sdrGraphButtonContainer.style.opacity = 1;
     });
 
-    sdrGraphCSS.addEventListener('mouseout', () => {
+    sdrGraphCSS.addEventListener('mouseleave', () => {
       sdrGraphButtonContainer.style.transition = 'opacity 1s ease 3s';
       sdrGraphButtonContainer.style.opacity = 0.8;
     });
+}
+
+function sendSpanMode(spanMode) {
+    if (!wsSendSocket || wsSendSocket.readyState !== 1) return;
+
+    const message = JSON.stringify({
+        type: 'spectrum-graph',
+        value: {
+            status: 'span',
+            spanMode: spanMode
+        },
+    });
+
+    wsSendSocket.send(message);
+}
+
+function triggerSpectrumScan(spanMode) {
+    if (!isTuningAllowed || !wsSendSocket || autoSpanScanCooldown || wsSendSocket.readyState !== 1) return;
+
+    initializeGraph();
+    const message = JSON.stringify({
+        type: 'spectrum-graph',
+        value: {
+            status: 'scan',
+            spanMode: spanMode
+        },
+    });
+
+    wsSendSocket.send(message);
+    autoSpanScanCooldown = true;
+    setTimeout(() => {
+        autoSpanScanCooldown = false;
+    }, 1000);
 }
 
 // Create button
@@ -1173,6 +1138,116 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     const styleElement = document.createElement('style');
     styleElement.innerHTML = buttonStyle;
     document.head.appendChild(styleElement);
+}
+
+function createSpanModeButtons() {
+    const existingSpanButtons = document.querySelectorAll('#span-3-5-button, #span-fm-button');
+    existingSpanButtons.forEach(button => button.remove());
+
+    const canvas = document.getElementById('sdr-graph-button-container');
+    if (!canvas) {
+        logError(`#sdr-graph not found`);
+        return;
+    }
+    if (!canvas.classList.contains('sdr-graph-button-container-main')) {
+        logError(`Parent container is not .canvas-container`);
+        return;
+    }
+
+    const spanButton = document.createElement('button');
+    spanButton.id = 'span-3-5-button';
+    spanButton.setAttribute('aria-label', 'Toggle 80-88 MHz span');
+    spanButton.classList.add('span-mode-button', 'tooltip');
+    spanButton.setAttribute('data-tooltip', 'Toggle 80-88 MHz span');
+    spanButton.textContent = '3.5';
+    spanButton.addEventListener('contextmenu', e => e.preventDefault());
+
+    const fmButton = document.createElement('button');
+    fmButton.id = 'span-fm-button';
+    fmButton.setAttribute('aria-label', 'FM span');
+    fmButton.classList.add('span-mode-button', 'tooltip');
+    fmButton.setAttribute('data-tooltip', 'FM span');
+    fmButton.textContent = 'FM';
+    fmButton.addEventListener('contextmenu', e => e.preventDefault());
+
+    canvas.appendChild(spanButton);
+    canvas.appendChild(fmButton);
+
+    const updateSpanButtons = () => {
+        spanButton.classList.toggle('button-on', localStorageItem.enableLowFmSpan);
+        fmButton.classList.toggle('button-on', !localStorageItem.enableLowFmSpan);
+    };
+    updateSpanButtons();
+    sendSpanMode(localStorageItem.enableLowFmSpan ? 'low' : 'normal');
+
+    spanButton.addEventListener('click', () => {
+        if (localStorageItem.enableLowFmSpan) {
+            triggerSpectrumScan('low');
+            return;
+        }
+        localStorageItem.enableLowFmSpan = true;
+        localStorage.setItem('enableSpectrumGraphLowFmSpan', 'true');
+        updateSpanButtons();
+        triggerSpectrumScan('low');
+        setTimeout(drawGraph, drawGraphDelay);
+    });
+
+    fmButton.addEventListener('click', () => {
+        if (!localStorageItem.enableLowFmSpan) {
+            sendSpanMode('normal');
+            setTimeout(drawGraph, drawGraphDelay);
+            return;
+        }
+        localStorageItem.enableLowFmSpan = false;
+        localStorage.setItem('enableSpectrumGraphLowFmSpan', 'false');
+        updateSpanButtons();
+        sendSpanMode('normal');
+        if (Array.isArray(fullSpanSigArrayCache) && fullSpanSigArrayCache.length > 0) {
+            sigArray = fullSpanSigArrayCache.map(item => ({ ...item }));
+        }
+        setTimeout(drawGraph, drawGraphDelay);
+    });
+
+    if (!document.getElementById('span-mode-button-style')) {
+        const buttonStyle = `
+        .span-mode-button {
+            position: absolute;
+            top: ${topValue};
+            opacity: 0.8;
+            border-radius: 5px;
+            padding: 0;
+            cursor: pointer;
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+            width: 32px;
+            min-width: 32px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
+            transform: scale(1);
+            z-index: 8;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            box-sizing: border-box;
+        }
+        .span-mode-button.button-on {
+            filter: brightness(150%) contrast(110%);
+            box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.5), 0 0 10px var(--color-5);
+        }
+        #span-fm-button {
+            right: ${BUTTON_RIGHT_BASE + (BUTTON_SPACING * 5)}px;
+        }
+        #span-3-5-button {
+            right: ${BUTTON_RIGHT_BASE + (BUTTON_SPACING * 6)}px;
+        }
+`;
+        const styleElement = document.createElement('style');
+        styleElement.id = 'span-mode-button-style';
+        styleElement.innerHTML = buttonStyle;
+        document.head.appendChild(styleElement);
+    }
 }
 
 // Function to display update text
@@ -1305,6 +1380,7 @@ async function initializeGraph() {
 
                     return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
                 });
+                cacheFullSpanSigArray(sigArray);
             }
 
             if (debug) {
@@ -1428,6 +1504,8 @@ function displaySignalCanvas() {
         applyFadeEffect('smoothing-on-off-button', 0, 0.96);
         applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
         applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
+        applyFadeEffect('span-3-5-button', 0, 0.96);
+        applyFadeEffect('span-fm-button', 0, 0.96);
         applyFadeEffect('draw-above-canvas', 0, 0.96);
     }, 10);
 
@@ -1455,6 +1533,14 @@ function displaySignalCanvas() {
         const sdrCanvasAutoBaselineButton = document.getElementById('auto-baseline-on-off-button');
         if (sdrCanvasAutoBaselineButton) {
             sdrCanvasAutoBaselineButton.style.display = 'none';
+        }
+        const sdrCanvasSpanButton = document.getElementById('span-3-5-button');
+        if (sdrCanvasSpanButton) {
+            sdrCanvasSpanButton.style.display = 'none';
+        }
+        const sdrCanvasSpanFmButton = document.getElementById('span-fm-button');
+        if (sdrCanvasSpanFmButton) {
+            sdrCanvasSpanFmButton.style.display = 'none';
         }
         const sdrCanvasDrawAboveCanvas = document.getElementById('draw-above-canvas');
         if (sdrCanvasDrawAboveCanvas) {
@@ -1496,6 +1582,17 @@ function displaySignalCanvas() {
 
 // Display SDR graph output
 function displaySdrGraph() {
+    if (localStorageItem.enableLowFmSpan) {
+        localStorageItem.enableLowFmSpan = false;
+        localStorage.setItem('enableSpectrumGraphLowFmSpan', 'false');
+        if (Array.isArray(fullSpanSigArrayCache) && fullSpanSigArrayCache.length > 0) {
+            sigArray = fullSpanSigArrayCache.map(item => ({ ...item }));
+        }
+        sendSpanMode('normal');
+    }
+    if (!isInitialDataLoaded || !Array.isArray(sigArray) || sigArray.length === 0) {
+        initializeGraph();
+    }
     // Show canvas
     const sdrGraph = document.getElementById('sdr-graph');
     if (sdrGraph) sdrGraph.style.display = 'block';
@@ -1710,11 +1807,14 @@ function initializeCanvasInteractions() {
             return;
         }
 
-        // Find closest point in sigArray to the frequency under the cursor
+        // Find closest point in graph data to the frequency under the cursor
         let closestPoint = null;
         let minDistance = Infinity;
-        for (let point of sigArray) {
-            const distance = Math.abs(point.freq - freq.toFixed(1));
+        const tooltipData = graphSigArraySpanCache.length ? graphSigArraySpanCache : sigArray;
+        for (let point of tooltipData) {
+            const pointFreq = Number(point.freq);
+            if (Number.isNaN(pointFreq)) continue;
+            const distance = Math.abs(pointFreq - Number(freq.toFixed(1)));
             if (distance < minDistance) {
                 minDistance = distance;
                 closestPoint = point;
@@ -1728,13 +1828,13 @@ function initializeCanvasInteractions() {
             if (!CORRECT_TOOLTIP_PEAKS) {
                 signalValue = Number(closestPoint.sig);
             } else {
-                const idx = sigArray.indexOf(closestPoint);
+                const idx = tooltipData.indexOf(closestPoint);
                 const base = Number(closestPoint.sig);
 
                 let left = null, right = null;
 
-                if (idx > 0) left = Number(sigArray[idx - 1].sig);
-                if (idx < sigArray.length - 1) right = Number(sigArray[idx + 1].sig);
+                if (idx > 0) left = Number(tooltipData[idx - 1].sig);
+                if (idx < tooltipData.length - 1) right = Number(tooltipData[idx + 1].sig);
 
                 let maxSignal = base;
 
@@ -2052,6 +2152,7 @@ function drawGraph() {
     dataFrequencyValue = dataFrequencyElement.textContent;
 
     let savedOutline;
+    let savedOutlineForSpan;
 
     if (!localStorageItem.enableHold) outlinePointsSavePermission = true;
 
@@ -2100,15 +2201,67 @@ function drawGraph() {
             return;
         }
 
-        if (ADJUST_SCALE_TO_OUTLINE) {
-            minSigOutline = Math.max(Math.min(...savedOutline.map(p => p.sig)) - dynamicPadding, -1);
-            maxSigOutline = Math.min(Math.max(...savedOutline.map(p => p.sig)) + dynamicPadding, canvas.height);
+        savedOutlineForSpan = savedOutline;
+    }
+
+    const minFreq = Math.max(Math.min(...sigArray.map(d => d.freq)) || 88, 0);
+    const maxFreq = Math.min(Math.max(...sigArray.map(d => d.freq)) || 108, 200);
+    let spanMinFreq = minFreq;
+    let spanMaxFreq = maxFreq;
+    if (localStorageItem.enableLowFmSpan) {
+        spanMinFreq = 80;
+        spanMaxFreq = 88;
+    }
+
+    const graphSigArray = sigArray
+        .map(point => ({
+            freq: Number(point.freq),
+            sig: Number(point.sig)
+        }))
+        .filter(point => !Number.isNaN(point.freq) && !Number.isNaN(point.sig));
+    const graphSigArrayFiltered = localStorageItem.enableLowFmSpan
+        ? graphSigArray.filter(point => point.freq >= spanMinFreq && point.freq <= spanMaxFreq)
+        : graphSigArray;
+    const graphSigArraySafe = graphSigArrayFiltered.length > 0
+        ? graphSigArrayFiltered
+        : [
+            { freq: spanMinFreq, sig: 0 },
+            { freq: spanMaxFreq, sig: 0 }
+        ];
+    let graphSigArraySpan = graphSigArraySafe;
+    if (localStorageItem.enableLowFmSpan && graphSigArraySafe.length > 0) {
+        graphSigArraySpan = [...graphSigArraySafe].sort((a, b) => Number(a.freq) - Number(b.freq));
+        const firstFreq = graphSigArraySpan[0].freq;
+        const lastFreq = graphSigArraySpan[graphSigArraySpan.length - 1].freq;
+        if (firstFreq > spanMinFreq) {
+            graphSigArraySpan.unshift({ freq: spanMinFreq, sig: graphSigArraySpan[0].sig });
         }
+        if (lastFreq < spanMaxFreq) {
+            graphSigArraySpan.push({ freq: spanMaxFreq, sig: graphSigArraySpan[graphSigArraySpan.length - 1].sig });
+        }
+    }
+    graphSigArraySpanCache = graphSigArraySpan;
+
+    if (localStorageItem.enableHold && Array.isArray(savedOutlineForSpan)) {
+        savedOutlineForSpan = savedOutlineForSpan
+            .map(point => ({
+                freq: Number(point.freq),
+                sig: Number(point.sig)
+            }))
+            .filter(point => !Number.isNaN(point.freq) && !Number.isNaN(point.sig));
+        if (localStorageItem.enableLowFmSpan) {
+            savedOutlineForSpan = savedOutlineForSpan.filter(point => point.freq >= spanMinFreq && point.freq <= spanMaxFreq);
+        }
+    }
+
+    if (ADJUST_SCALE_TO_OUTLINE && localStorageItem.enableHold && Array.isArray(savedOutlineForSpan) && savedOutlineForSpan.length > 0) {
+        minSigOutline = Math.max(Math.min(...savedOutlineForSpan.map(p => p.sig)) - dynamicPadding, -1);
+        maxSigOutline = Math.min(Math.max(...savedOutlineForSpan.map(p => p.sig)) + dynamicPadding, canvas.height);
     }
 
     // Determine min signal value dynamically
     if (localStorageItem.isAutoBaseline) {
-        minSig = Number(Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30).toFixed(3)); // Dynamic vertical graph
+        minSig = Number(Math.max(Math.min(...graphSigArraySpan.map(d => d.sig)) - dynamicPadding, -30).toFixed(3)); // Dynamic vertical graph
         if (ADJUST_SCALE_TO_OUTLINE && localStorageItem.enableHold && (minSigOutline < minSig)) minSig = minSigOutline;
     } else {
         minSig = 0; // Fixed min vertical graph
@@ -2116,19 +2269,16 @@ function drawGraph() {
 
     // Determine max signal value dynamically
     if (!localStorageItem.fixedVerticalGraph) {
-        maxSig = (Math.max(...sigArray.map(d => d.sig)) - minSig) + dynamicPadding || 0.01; // Dynamic vertical graph
+        maxSig = (Math.max(...graphSigArraySpan.map(d => d.sig)) - minSig) + dynamicPadding || 0.01; // Dynamic vertical graph
         if (ADJUST_SCALE_TO_OUTLINE && localStorageItem.enableHold && (maxSigOutline > maxSig)) maxSig = (maxSigOutline - minSig);
     } else {
         maxSig = 80 - minSig; // Fixed max vertical graph
     }
 
-    const minFreq = Math.max(Math.min(...sigArray.map(d => d.freq)) || 88, 0);
-    const maxFreq = Math.min(Math.max(...sigArray.map(d => d.freq)) || 108, 200);
-
-    if (maxFreq - minFreq <= 12) isDecimalMarkerRoundOff = false;
+    if (spanMaxFreq - spanMinFreq <= 12) isDecimalMarkerRoundOff = false;
 
     // Determine frequency step dynamically
-    const freqRange = (maxFreq - minFreq).toFixed(2);
+    const freqRange = spanMaxFreq - spanMinFreq;
     const approxSpacing = width / freqRange; // Approx spacing per frequency
     let freqStep;
     if (approxSpacing < 20) {
@@ -2182,27 +2332,23 @@ function drawGraph() {
     ctx.strokeStyle = '#ccc';
 
     // Round minFreq if setting is enabled
-    let minFreqRounded = minFreq;
+    let minFreqRounded = spanMinFreq;
     minFreqRounded = isDecimalMarkerRoundOff ? Math.ceil(minFreqRounded) : minFreqRounded;
 
-    for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
-        const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
-        if (freq !== minFreq && freq !== maxFreq) ctx.fillText(freq.toFixed(1), x - 10, height - 5);
+    for (let freq = minFreqRounded; freq <= spanMaxFreq; freq += freqStep) {
+        const x = Math.round(xOffset + (freq - spanMinFreq) * xScale) - 0.5;
+        if (freq !== spanMinFreq && freq !== spanMaxFreq) ctx.fillText(freq.toFixed(1), x - 10, height - 5);
 
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
         ctx.lineWidth = 1;
         ctx.setLineDash([]);
 
-        for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
-            const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
-
-            // Draw tick mark only if it's not the first or last frequency
-            if (freq !== minFreq && freq !== maxFreq) {
-                ctx.beginPath();
-                ctx.moveTo(x, height - 20); // Start at x-axis
-                ctx.lineTo(x, height - 18); // Extend slightly upwards
-                ctx.stroke();
-            }
+        // Draw tick mark only if it's not the first or last frequency
+        if (freq !== spanMinFreq && freq !== spanMaxFreq) {
+            ctx.beginPath();
+            ctx.moveTo(x, height - 20); // Start at x-axis
+            ctx.lineTo(x, height - 18); // Extend slightly upwards
+            ctx.stroke();
         }
     }
 
@@ -2247,7 +2393,7 @@ function drawGraph() {
     // Draw noise floor signal label
     const disableNoiseFloorLabel = localStorageItem.disableNoiseFloorLabel;
     if (!disableNoiseFloorLabel) {
-        let drawLabelMin = (Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
+        let drawLabelMin = (Math.max(Math.min(...graphSigArraySpan.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
         drawLabelMin = (drawLabelMin - 0.1) - sigOffset;
         ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(localStorageItem.isAutoBaseline ? '--color-5' : '--color-3').trim();
         let yScaleFixed = Math.round(height - 20.5 - (0 + 0.01) * yScale) + 0.5;
@@ -2320,12 +2466,12 @@ function drawGraph() {
     ctx.moveTo(xOffset, height - 20); // Start from bottom-left corner
 
     // Reset screen reader variables
-    let ariaLabelMin = (Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
+    let ariaLabelMin = (Math.max(Math.min(...graphSigArraySpan.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
     let ariaLabelStationCount = 0;
 
     // Draw graph line
-    sigArray.forEach((point, index) => {
-        const x = xOffset + (point.freq - minFreq) * xScale;
+    graphSigArraySpan.forEach((point, index) => {
+        const x = xOffset + (point.freq - spanMinFreq) * xScale;
         let y;
         if (!localStorageItem.isAutoBaseline && point.sig < 0) {
             y = Math.round(height - (0 - minSig) * yScale); // If below 0 dBf
@@ -2343,7 +2489,7 @@ function drawGraph() {
     // For screen readers
     const sdrGraph = document.querySelector('.canvas-container');
     if (sdrGraph) sdrGraph.setAttribute('role', 'img');
-    if (sdrGraph) sdrGraph.setAttribute('aria-label', `Signal graph showing ${parseInt(ariaLabelStationCount / 3)} possibly detected stations across the frequency spectrum from ${minFreq} to ${maxFreq} MHz`);
+    if (sdrGraph) sdrGraph.setAttribute('aria-label', `Signal graph showing ${parseInt(ariaLabelStationCount / 3)} possibly detected stations across the frequency spectrum from ${spanMinFreq} to ${spanMaxFreq} MHz`);
 
     if (localStorageItem.enableSmoothing) {
         ctx.fillStyle = gradient;
@@ -2359,7 +2505,7 @@ function drawGraph() {
     ctx.lineJoin = 'miter';
 
     // Return to the x-axis under the last data point
-    const lastPointX = xOffset + (sigArray[sigArray.length - 1].freq - minFreq) * xScale;
+    const lastPointX = xOffset + (graphSigArraySpan[graphSigArraySpan.length - 1].freq - spanMinFreq) * xScale;
     ctx.lineTo(lastPointX, height - 20);
 
     ctx.fill();
@@ -2370,9 +2516,9 @@ function drawGraph() {
     ctx.setLineDash([1, 2]); // Dotted lines
 
     // Vertical grid lines (for each frequency step)
-    for (let freq = minFreqRounded; freq.toFixed(2) <= maxFreq; freq += freqStep) {
-        const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
-        if (freq !== minFreq) {
+    for (let freq = minFreqRounded; freq.toFixed(2) <= spanMaxFreq; freq += freqStep) {
+        const x = Math.round(xOffset + (freq - spanMinFreq) * xScale) - 0.5;
+        if (freq !== spanMinFreq) {
             ctx.beginPath();
             ctx.moveTo(x, 9.5);
             ctx.lineTo(x, height - 20);
@@ -2440,7 +2586,7 @@ function drawGraph() {
     // Draw graph line
     let leftX, rightX;
     sigArray.forEach((point, index) => {
-        const x = xOffset + (point.freq - minFreq) * xScale;
+        const x = xOffset + (point.freq - spanMinFreq) * xScale;
         let y;
         if (!localStorageItem.isAutoBaseline && point.sig < 0) {
             y = height - 20 - 0 * yScale; // If below 0 dBf
@@ -2452,26 +2598,26 @@ function drawGraph() {
     // Draw current frequency line
     const highlightFreq = Number(dataFrequencyValue);
     // Only draw if the frequency is within or near the graph range
-    if (highlightFreq >= minFreq - 0.1 && highlightFreq <= maxFreq + 0.1) {
+    if (highlightFreq >= spanMinFreq - 0.1 && highlightFreq <= spanMaxFreq + 0.1) {
         // Calculate the x-coordinates for the white vertical line
         let highlightBandwidthLow = 0.1;
         let highlightBandwidthHigh = 0.1;
 
         // Adjust bandwidth if at the edge
-        if (highlightFreq < minFreq) {
+        if (highlightFreq < spanMinFreq) {
             highlightBandwidthLow = 0.0;
             highlightBandwidthHigh = 0.1;
         }
 
         // Left and right X calculations for the highlight region
-        leftX = xOffset + (highlightFreq - highlightBandwidthLow - minFreq) * xScale;
-        rightX = xOffset + (highlightFreq + highlightBandwidthHigh - minFreq) * xScale;
+        leftX = xOffset + (highlightFreq - highlightBandwidthLow - spanMinFreq) * xScale;
+        rightX = xOffset + (highlightFreq + highlightBandwidthHigh - spanMinFreq) * xScale;
 
         // Ensure that leftX doesn't overflow to the left
         leftX = Math.max(leftX, xOffset);  // Prevent going past the left edge
 
         // Ensure that rightX doesn't overflow past the right edge
-        rightX = Math.min(rightX, xOffset + (maxFreq - minFreq) * xScale);  // Prevent going past the right edge
+        rightX = Math.min(rightX, xOffset + (spanMaxFreq - spanMinFreq) * xScale);  // Prevent going past the right edge
     } else {
         // Don't draw if frequency is completely out of range
         leftX = undefined;
@@ -2505,16 +2651,22 @@ function drawGraph() {
 
     // Draw saved graph outline
     if (localStorageItem.enableHold) {
+        const outlineToDraw = Array.isArray(savedOutlineForSpan) ? savedOutlineForSpan : savedOutline;
+        if (!outlineToDraw || outlineToDraw.length === 0) {
+            graphImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            return updateBounds(xScale, spanMinFreq, freqRange, yScale);
+        }
+
         // Outline style
         ctx.strokeStyle = 'rgb(240, 240, 240)';
         ctx.lineWidth = 1.5;
 
         ctx.beginPath();
 
-        for (let i = 0; i < savedOutline.length; i++) {
-            const point = savedOutline[i];
+        for (let i = 0; i < outlineToDraw.length; i++) {
+            const point = outlineToDraw[i];
 
-            const x = Math.round(xOffset + (point.freq - minFreq) * xScale);
+            const x = Math.round(xOffset + (point.freq - spanMinFreq) * xScale);
             let y = Math.round(canvas.height - (point.sig - minSig) * yScale);
 
             // Clamp y value if it's below the graph
@@ -2558,7 +2710,7 @@ function drawGraph() {
         insertUpdateText(`[${pluginName}] Error during graph initialisation. The server may need to be restarted.`);
     }
 
-    return updateBounds(xScale, minFreq, freqRange, yScale);
+    return updateBounds(xScale, spanMinFreq, freqRange, yScale);
 }
 const updateBounds = initializeCanvasInteractions();
 

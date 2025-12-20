@@ -38,6 +38,7 @@ let isFirstRun = true;
 let isScanRunning = false;
 let hasLoggedUndefined = false;
 let frequencySocket = null;
+let scanSpanMode = 'normal';
 let sigArray = [];
 
 // Check if module or radio firmware
@@ -329,8 +330,18 @@ async function ExtraWebSocket() {
 
                     // Handle messages
                     if (!messageParsedTimeout) {
+                        if (message.type === 'spectrum-graph' && message.value?.spanMode) {
+                            const nextSpanMode = message.value.spanMode === 'low' ? 'low' : 'normal';
+                            if (scanSpanMode !== nextSpanMode) {
+                                scanSpanMode = nextSpanMode;
+                                logInfo(`${pluginName}: Scan span mode set to ${scanSpanMode}.`);
+                            }
+                        }
+
                         if (message.type === 'spectrum-graph' && message.value?.status === 'scan') {
                             if (!isFirstRun && !isScanRunning) restartScan('scan');
+                        } else if (message.type === 'spectrum-graph' && message.value?.status === 'span') {
+                            // Span mode updated only, no scan requested
                         } else if (!message.value?.status === 'scan') {
                             logError(`${pluginName} unknown command received:`, message);
                         }
@@ -717,12 +728,19 @@ function startScan(command) {
             tuningUpperLimitOffset = 0;
         }
 
-        // Limit scan to either OIRT band (64-86 MHz) or FM band (86-108 MHz)
-        if ((currentFrequency * 1000) < (fmLowerLimit * 1000) && tuningUpperLimitScan > (fmLowerLimit * 1000)) tuningUpperLimitScan = (fmLowerLimit * 1000);
-        if ((currentFrequency * 1000) >= (fmLowerLimit * 1000) && tuningLowerLimitScan < (fmLowerLimit * 1000)) tuningLowerLimitScan = (fmLowerLimit * 1000);
+        if (scanSpanMode === 'low') {
+            tuningLowerLimitScan = 80000;
+            tuningUpperLimitScan = 88000;
+            tuningLowerLimitOffset = 0;
+            tuningUpperLimitOffset = 0;
+        } else {
+            // Limit scan to either OIRT band (64-86 MHz) or FM band (86-108 MHz)
+            if ((currentFrequency * 1000) < (fmLowerLimit * 1000) && tuningUpperLimitScan > (fmLowerLimit * 1000)) tuningUpperLimitScan = (fmLowerLimit * 1000);
+            if ((currentFrequency * 1000) >= (fmLowerLimit * 1000) && tuningLowerLimitScan < (fmLowerLimit * 1000)) tuningLowerLimitScan = (fmLowerLimit * 1000);
+        }
 
         // The magic happens here
-        if (currentFrequency < fmLowerLimit && disableScanBelowFmLowerLimit) {
+        if (scanSpanMode !== 'low' && currentFrequency < fmLowerLimit && disableScanBelowFmLowerLimit) {
             isScanHalted(true);
             logWarn(`${pluginName}: Scanning below ${fmLowerLimit} MHz is disabled.`);
             return;
