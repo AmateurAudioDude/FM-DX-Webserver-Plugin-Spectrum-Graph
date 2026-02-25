@@ -2577,23 +2577,9 @@ function displaySignalCanvas() {
     if (pluginButton) {
         pluginButton.classList.remove('active');
         if (isGraphOpen) pluginButton.disabled = true;
-
-        const fadeElement = document.getElementById('signal-canvas'); // fading element
-
-        if (!fadeElement) {
+        setTimeout(() => {
             pluginButton.disabled = false;
-            return;
-        }
-
-        const onTransitionEnd = (e) => {
-            if (e.target !== fadeElement) return;
-            if (e.propertyName !== 'opacity') return;
-
-            fadeElement.removeEventListener('transitionend', onTransitionEnd);
-            pluginButton.disabled = false;
-        };
-
-        fadeElement.addEventListener('transitionend', onTransitionEnd);
+        }, 400);
     } else {
         if (window.location.pathname !== '/setup') {
             if (typeof addIconToPluginPanel === 'function') {

@@ -38,9 +38,9 @@ v1.3.0
 ------
 * Added mouse right-click option to mark frequencies on graph
 * Added option to show notice for outdated scans
-* Added option to select from various colour schemes
 * Added language menu accessible by right-clicking the icon
 * Added animated notification while scan is active
+* Added `pluginSpectrumGraph.js` option to select from various colour schemes
 * Added `SpectrumGraph.json` option to configure custom frequency range scans
 * Fixed scan button not working for admins when server was locked
 * Fixed graph not appearing during slow page load
