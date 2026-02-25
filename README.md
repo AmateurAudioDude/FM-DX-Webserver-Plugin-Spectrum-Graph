@@ -2,7 +2,7 @@
 
 This plugin scans the FM radio band in under 1.5 seconds, then displayed in a spectrum window.
 
-![spectrum_graph](https://github.com/user-attachments/assets/e1383c27-2e29-4231-b8d3-a9d70c469944)
+![spectrum_graph](https://github.com/user-attachments/assets/1dc91573-ffb1-414e-a3de-cd204422a40c)
 
 ## Instructions
 
@@ -15,7 +15,7 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 * Client-side configuration options located in `pluginSpectrumGraph.js`
 
 > [!IMPORTANT]
-> For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
+> For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32/releases). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
 
 ## SpectrumGraph.json
  
@@ -23,6 +23,8 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 - **`tuningRange`**: Side frequencies to scan, in MHz. A value of 0 scans the entire FM/OIRT band.   
 - **`tuningStepSize`**: Tuning step size, in kHz. Recommended values are either 100 or 50.   
 - **`tuningBandwidth`**: Supported bandwidth values are 0, 56, 64, 72, 84, 97, 114, 133, 151, 168, 184, 200, 217, 236, 254, 287, and 311.   
+- **`fmLowerLimit`**: Lower end of the FM band to scan. Default value is 86.   
+- **`customRanges`**: Configure up to two custom frequency range buttons. Example configuration: `"2, FM1, 65, 74, FM2, 80, 88",`   
 - **`warnIncompleteData`**: Enable to display console warnings about incomplete/interrupted scans. Note: Some firmware outputs data that always appears to be incomplete.
 - **`logLocalCommands`**: Disable to hide commands shown in console that have been sent locally, such as from another plugin.   
 
@@ -32,8 +34,17 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 > [!CAUTION]
 > Lowering the value of **`rescanDelay`** increases the risk of your server being overloaded with scan requests.
 
-### Known issues
-* The plugin currently doesn't function if tuning is locked.
+v1.3.0
+------
+* Added mouse right-click option to mark frequencies on graph
+* Added option to show notice for outdated scans
+* Added option to select from various colour schemes
+* Added language menu accessible by right-clicking the icon
+* Added animated notification while scan is active
+* Added `SpectrumGraph.json` option to configure custom frequency range scans
+* Fixed scan button not working for admins when server was locked
+* Fixed graph not appearing during slow page load
+* Minor visual changes
 
 v1.2.7
 ------

@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.2.7 by AAD
+    Spectrum Graph v1.3.0 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -16,20 +16,223 @@ const DECIMAL_MARKER_ROUND_OFF = true;          // Round frequency markers to th
 const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/relative or clamp outline
 const ALLOW_ABOVE_CANVAS = true;                // Displays a button to display above signal graph if there is room
 const CORRECT_TOOLTIP_PEAKS = true;             // Corrects inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps
+const LAST_ANTENNA_SCAN_NOTICE_MINUTES = 30;    // Periodically displays a notice if last scan of any antenna is outdated
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
+const SPECTRUM_COLOR_STYLE = 'DEFAULT';         // 'DEFAULT', 'ACCURATE_4', 'ACCURATE_7', 'BALANCED', 'WARM_TOP', 'SMOOTH'
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.2.7';
+const pluginVersion = '1.3.0';
 const pluginName = "Spectrum Graph";
 const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
 const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
 const pluginSetupOnlyNotify = false;
 const CHECK_FOR_UPDATES = true;
 
+// const advanced settings variables
+const ANTENNA_SCAN_NOTICE_TIMEOUT_SECONDS = 10;                             // Outdated antenna notify display timeout
+const ANTENNA_SCAN_NOTICE_INTERVAL_SECONDS = 180;                           // Outdated antenna notify display interval
+const MARKER_TOLERANCE_PX = 3;                                              // Mouse position tolerance in pixels of marker selection
+const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0;     // Signal calibration (requires external hardware to set signal strength)
+const SCAN_COVERAGE_OPACITY = 0.2;                                          // Scanner plugin 'defaultScannerMode' opacity value
+const DEFAULT_LANGUAGE = 'en';                                              // Default language (browser language setting overrides)
+
+// Language translations
+const translations = {
+  en: {
+    __name: 'English (UK)',
+    spectrumGraph: `Spectrum Graph`,
+    newVersion: `There is a new version of Spectrum Graph available`,
+    spectrumScanIncomplete: `Spectrum scan appears incomplete. Perform a manual scan if needed.`,
+    spectrumScanInvalid: `Spectrum scan appears invalid. Perform a manual scan if needed.`,
+    spectrumScanLocked:  `Scanning is currently locked by the administrator`,
+    errorDuringInitialisation: `[${pluginName}] Error initialising graph. The server may need to be restarted.`,
+    holdPeaks: `Hold Peaks`,
+    smoothGraphEdges: `Smooth Graph Edges`,
+    relativeFixedScale: `Relative/Fixed Scale`,
+    autoBaseline: `Auto Baseline`,
+    performManualScan: `Perform Manual Scan`,
+    moveAboveSignalGraph: `Move Above Signal Graph`,
+    resolutionTooLowToDisplay: `Resolution too low to display`,
+    scanOlderThanXMinutes: `Scan older than {hours}h {minutes}m for {antennas}`,
+    noSignal: `[${pluginName}] Error receiving signal data`,
+    scanning: `Scanning`,
+  },
+  en_us: {
+    __name: 'English (US)',
+    spectrumGraph: `Spectrum Graph`,
+    newVersion: `There is a new version of Spectrum Graph available`,
+    spectrumScanIncomplete: `Spectrum scan appears incomplete. Run a manual scan if needed.`,
+    spectrumScanInvalid: `Spectrum scan appears invalid. Run a manual scan if needed.`,
+    spectrumScanLocked:  `Scanning is currently locked by the administrator`,
+    errorDuringInitialisation: `[${pluginName}] Error initializing graph. The server may need to be restarted.`,
+    holdPeaks: `Hold Peaks`,
+    smoothGraphEdges: `Smooth Graph Edges`,
+    relativeFixedScale: `Relative/Fixed Scale`,
+    autoBaseline: `Auto Baseline`,
+    performManualScan: `Run Manual Scan`,
+    moveAboveSignalGraph: `Move Above Signal Graph`,
+    resolutionTooLowToDisplay: `Resolution too low to display`,
+    scanOlderThanXMinutes: `Scan older than {hours}h {minutes}m for {antennas}`,
+    noSignal: `[${pluginName}] Error receiving signal data`,
+    scanning: `Scanning`,
+  },
+  es: {
+    __name: 'Español',
+    spectrumGraph: `Gráfico de espectro`,
+    newVersion: `Hay una nueva versión de Spectrum Graph disponible`,
+    spectrumScanIncomplete: `El escaneo de espectro parece incompleto. Realice un escaneo manual si es necesario.`,
+    spectrumScanInvalid: `El escaneo de espectro parece inválido. Realice un escaneo manual si es necesario.`,
+    spectrumScanLocked: `El escaneo está actualmente bloqueado por el administrador`,
+    errorDuringInitialisation: `[${pluginName}] Error durante la inicialización del gráfico. Es posible que sea necesario reiniciar el servidor.`,
+    holdPeaks: `Mantener Picos`,
+    smoothGraphEdges: `Suavizar los Bordes del Gráfico`,
+    relativeFixedScale: `Escala Relativa/Fija`,
+    autoBaseline: `Línea Base Automática`,
+    performManualScan: `Realizar Escaneo Manual`,
+    moveAboveSignalGraph: `Mover por Encima del Gráfico de Señales`,
+    resolutionTooLowToDisplay: `Resolución demasiado baja para mostrar`,
+    scanOlderThanXMinutes: `El escaneo es más antiguo que {hours}h {minutes}m para {antennas}`,
+    noSignal: `[${pluginName}] Error al recibir datos de señal`,
+    scanning: `Escaneando`,
+  },
+  fr: {
+    __name: 'Français',
+    spectrumGraph: `Graphique du spectre`,
+    newVersion: `Une nouvelle version de Spectrum Graph est disponible`,
+    spectrumScanIncomplete: `L'analyse du spectre semble incomplète. Effectuez un nouveau scan manuel si nécessaire.`,
+    spectrumScanInvalid: `L'analyse du spectre semble invalide. Effectuez un scan manuel si nécessaire.`,
+    spectrumScanLocked: `Le balayage est actuellement verrouillé par l'administrateur`,
+    errorDuringInitialisation: `[${pluginName}] Erreur lors de l'initialisation du graphique. Le serveur pourrait avoir besoin d'être redémarré.`,
+    holdPeaks: `Maintenir les Pics`,
+    smoothGraphEdges: `Lisser les Bords du Graphique`,
+    relativeFixedScale: `Échelle Relative/Fixe`,
+    autoBaseline: `Base Automatique`,
+    performManualScan: `Effectuer un Scan Manuel`,
+    moveAboveSignalGraph: `Déplacer au-dessus du Graphique du Signal`,
+    resolutionTooLowToDisplay: `Résolution trop basse pour afficher`,
+    scanOlderThanXMinutes: `Le scan est plus ancien que {hours}h {minutes}m pour {antennas}`,
+    noSignal: `[${pluginName}] Erreur lors de la réception des données du signal`,
+    scanning: `Numérisation`,
+  },
+  de: {
+    __name: 'Deutsch',
+    spectrumGraph: `Spektrumanalyse`,
+    newVersion: `Eine neue Version von Spectrum Graph ist verfügbar`,
+    spectrumScanIncomplete: `Spektrums-Scan scheint unvollständig. Führen Sie bei Bedarf einen manuellen Scan durch.`,
+    spectrumScanInvalid: `Spektrums-Scan scheint ungültig. Führen Sie bei Bedarf einen manuellen Scan durch.`,
+    spectrumScanLocked: `Das Scannen ist derzeit vom Administrator gesperrt`,
+    errorDuringInitialisation: `[${pluginName}] Fehler bei der Initialisierung des Diagramms. Der Server muss möglicherweise neu gestartet werden.`,
+    holdPeaks: `Spitzen Halten`,
+    smoothGraphEdges: `Diagramm-Kanten Glätten`,
+    relativeFixedScale: `Relative/Feste Skala`,
+    autoBaseline: `Automatische Basislinie`,
+    performManualScan: `Manuellen Scan Durchführen`,
+    moveAboveSignalGraph: `Über dem Signal-Diagramm Verschieben`,
+    resolutionTooLowToDisplay: `Auflösung zu niedrig zum Anzeigen`,
+    scanOlderThanXMinutes: `Scan ist älter als {hours}h {minutes}min für {antennas}`,
+    noSignal: `[${pluginName}] Fehler beim Empfangen der Signaldaten`,
+    scanning: `Scannen`,
+  },
+  nl: {
+    __name: 'Nederlands',
+    spectrumGraph: `Spectrumschaart`,
+    newVersion: `Er is een nieuwe versie van Spectrum Graph beschikbaar`,
+    spectrumScanIncomplete: `Spectrumscan lijkt onvolledig. Voer indien nodig een handmatige scan uit.`,
+    spectrumScanInvalid: `Spectrumscan lijkt ongeldig. Voer indien nodig een handmatige scan uit.`,
+    spectrumScanLocked: `Scannen is momenteel vergrendeld door de beheerder`,
+    errorDuringInitialisation: `[${pluginName}] Fout tijdens grafiekinitialisatie. De server moet mogelijk opnieuw worden gestart.`,
+    holdPeaks: `Pieken vasthouden`,
+    smoothGraphEdges: `Grafiekranden gladmaken`,
+    relativeFixedScale: `Relatieve/Vaste schaal`,
+    autoBaseline: `Automatische basislijn`,
+    performManualScan: `Handmatige scan uitvoeren`,
+    moveAboveSignalGraph: `Verplaats boven signaalgrafiek`,
+    resolutionTooLowToDisplay: `Resolutie te laag om weer te geven`,
+    scanOlderThanXMinutes: `Scan is ouder dan {hours}u {minutes}m voor {antennas}`,
+    noSignal: `[${pluginName}] Fout bij het ontvangen van signaalgegevens`,
+    scanning: `Scannen`,
+  },
+  ru: {
+    __name: 'Русский',
+    spectrumGraph: `График спектра`,
+    newVersion: `Доступна новая версия Spectrum Graph`,
+    spectrumScanIncomplete: `Спектральное сканирование кажется неполным. Выполните ручное сканирование, если необходимо.`,
+    spectrumScanInvalid: `Спектральное сканирование кажется недействительным. Выполните ручное сканирование, если необходимо.`,
+    spectrumScanLocked: `Сканирование в данный момент заблокировано администратором`,
+    errorDuringInitialisation: `[${pluginName}] Ошибка при инициализации графика. Возможно, потребуется перезапустить сервер.`,
+    holdPeaks: `Удерживать пики`,
+    smoothGraphEdges: `Сгладить края графика`,
+    relativeFixedScale: `Относительная/фиксированная шкала`,
+    autoBaseline: `Автоматическая базовая линия`,
+    performManualScan: `Выполнить ручное сканирование`,
+    moveAboveSignalGraph: `Переместить над графиком сигнала`,
+    resolutionTooLowToDisplay: `Разрешение слишком низкое для отображения`,
+    scanOlderThanXMinutes: `Сканирование старше {hours}ч {minutes}мин для {antennas}`,
+    noSignal: `[${pluginName}] Ошибка при получении данных сигнала`,
+    scanning: `Сканирование`,
+  },
+  pl: {
+    __name: 'Polski',
+    spectrumGraph: `Wykres widma`,
+    newVersion: `Dostępna jest nowa wersja Spectrum Graph`,
+    spectrumScanIncomplete: `Skanowanie widma wydaje się niekompletne. W razie potrzeby przeprowadź ręczne skanowanie.`,
+    spectrumScanInvalid: `Skanowanie widma wydaje się nieprawidłowe. W razie potrzeby przeprowadź ręczne skanowanie.`,
+    spectrumScanLocked: `Skanowanie jest obecnie zablokowane przez administratora`,
+    errorDuringInitialisation: `[${pluginName}] Błąd podczas inicjalizacji wykresu. Serwer może wymagać ponownego uruchomienia.`,
+    holdPeaks: `Zatrzymaj szczyty`,
+    smoothGraphEdges: `Wygładź krawędzie wykresu`,
+    relativeFixedScale: `Skala względna/stała`,
+    autoBaseline: `Automatyczna linia bazowa`,
+    performManualScan: `Przeprowadź ręczne skanowanie`,
+    moveAboveSignalGraph: `Przenieś nad wykres sygnału`,
+    resolutionTooLowToDisplay: `Rozdzielczość zbyt niska do wyświetlenia`,
+    scanOlderThanXMinutes: `Skanowanie jest starsze niż {hours}g {minutes}min dla {antennas}`,
+    noSignal: `[${pluginName}] Błąd podczas odbierania danych sygnału`,
+    scanning: `Skanowanie`,
+  },
+  cs: {
+    __name: 'Čeština',
+    spectrumGraph: `Spektrální graf`,
+    newVersion: `Je k dispozici nová verze Spectrum Graph`,
+    spectrumScanIncomplete: `Skenování spektra se zdá být neúplné. Proveďte ruční skenování, pokud je to nutné.`,
+    spectrumScanInvalid: `Skenování spektra se zdá být neplatné. Proveďte ruční skenování, pokud je to nutné.`,
+    spectrumScanLocked: `Skenování je momentálně uzamčeno administrátorem`,
+    errorDuringInitialisation: `[${pluginName}] Chyba při inicializaci grafu. Server může být nutné restartovat.`,
+    holdPeaks: `Udržet vrcholy`,
+    smoothGraphEdges: `Hladit okraje grafu`,
+    relativeFixedScale: `Relativní/Fixní měřítko`,
+    autoBaseline: `Automatická základní čára`,
+    performManualScan: `Provést ruční skenování`,
+    moveAboveSignalGraph: `Přesunout nad graf signálu`,
+    resolutionTooLowToDisplay: `Příliš nízké rozlišení pro zobrazení`,
+    scanOlderThanXMinutes: `Skenování je starší než {hours}h {minutes}min pro {antennas}`,
+    noSignal: `[${pluginName}] Chyba při přijímání dat signálu`,
+    scanning: `Skenování`,
+  },
+  hu: {
+    __name: 'Magyar',
+    spectrumGraph: `Spektrum grafikon`,
+    newVersion: `A Spectrum Graph új verziója elérhető`,
+    spectrumScanIncomplete: `A spektrum szkennelés hiányosnak tűnik. Végezz manuális újraellenőrzést, ha szükséges.`,
+    spectrumScanInvalid: `A spektrum szkennelés érvénytelennek tűnik. Végezz manuális újraellenőrzést, ha szükséges.`,
+    spectrumScanLocked: `A szkennelés jelenleg az adminisztrátor által zárolt`,
+    errorDuringInitialisation: `[${pluginName}] Hiba a grafikon inicializálásakor. Lehet, hogy újra kell indítani a szervert.`,
+    holdPeaks: `Csúcsok kiemelése`,
+    smoothGraphEdges: `Grafikon élek simítása`,
+    relativeFixedScale: `Relatív/Fix skála`,
+    autoBaseline: `Automatikus alapvonal`,
+    performManualScan: `Kézi szkennelés`,
+    moveAboveSignalGraph: `Mozgatás a jelgrafikon fölé`,
+    resolutionTooLowToDisplay: `A felbontás túl alacsony a megjelenítéshez`,
+    scanOlderThanXMinutes: `A szkennelés régebbi, mint {hours}ó {minutes}p a {antennas}`,
+    noSignal: `[${pluginName}] Hiba a jeladatok fogadása közben`,
+    scanning: `Szkennelés`,
+  }
+};
+
 // const variables
 const debug = false;
-const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0; // Signal calibration
 const dataFrequencyElement = document.getElementById('data-frequency');
 const drawGraphDelay = 10;
 const resizeEdge = 20;
@@ -37,6 +240,8 @@ const canvasWidthOffset = 2;
 const canvasHeightOffset = 2;
 const windowHeight = document.querySelector('.dashboard-panel-plugin-list') ? 720 : 860;
 const topValue = BORDERLESS_THEME ? '12px' : '14px';
+const lastUpdates = []; // Last update timestamp for 'insertUpdateText' notice
+const markedFreqs = new Set();
 
 // let variables
 let canvasFullWidth = 1160; // Initial value
@@ -57,22 +262,26 @@ let dataFrequencyValue;
 let graphImageData; // Used to store graph image
 let isDecimalMarkerRoundOff = DECIMAL_MARKER_ROUND_OFF;
 let isGraphOpen = false;
+let isFirstMessage = true;
 let isScanComplete = true;
-let isPluginInitialized = false; // Track initialisation status
-let isWebSocketReady = false; // Track connection status
-let isInitialDataLoaded = false; // Track data load status
-let isPendingOpen = false; // Track early button click status
+let isScanInitiated = false;
+let isPluginInitialized = false;    // Track initialisation status
+let isWebSocketReady = false;       // Track connection status
+let isInitialDataLoaded = false;    // Track data load status
+let isPendingOpen = false;          // Track early button click status
 let isAlreadyLaunched = false;
 let isLaunchedEarly = false;
-let isScanCompleteFirstWarn = false;
 let isSpectrumOn = false;
 let graphError = false;
+let dataError = false;
 let currentAntenna = 0;
 let canvasFullWidthOffset = 0;
 let prevCanvasHeight = canvasFullHeight;
 let xOffset = 30;
 let outlinePoints = []; // Outline data for localStorage
 let outlinePointsSavePermission = false;
+let fmButton = null;
+let customRanges = [];
 let sigArray = [];
 let minSig; // Graph value
 let maxSig; // Graph value
@@ -83,11 +292,33 @@ let localStorageItem = {};
 let signalText = localStorage.getItem('signalUnit') || 'dbf';
 let sigOffset, xSigOffset, sigDesc, prevSignalText;
 let buttonTimeout;
+let buttonTimeoutLocally;
 let removeUpdateTextTimeout;
 let updateText;
 let wsSendSocket;
+let antennaScanInterval;
+let pendingMessage1;
+let pendingMessage2;
 let signalMeterDelay = 0;
-let tuningEnabled = true;
+let cachedAntennaNames = null;
+let antennaNamesPromise = null;
+let cachedLastUpdates = [null, null, null, null];
+let cachedServerTime = 0;
+let isUpdating = false;
+let scanStatus = "waiting";
+let currentLanguage = DEFAULT_LANGUAGE || 'en';
+let tuningEnabled = true;           // Affects all clients
+let tuningEnabledLocally = true;    // Affects local client
+
+// For outdated antenna scan notice
+let isLastUpdateOutdated = false;
+let isUsingAntennaSwitch = false;
+let outdatedAntennaList = '';
+
+// let variables for right-click
+let minFreqForMarkers = null;
+let xScaleForMarkers = null;
+let lastRemovedFreq = null;
 
 // let variables (Scanner plugin code by Highpoint2000)
 let ScannerIsScanning = false;
@@ -95,23 +326,237 @@ let ScannerMode = '';
 let ScannerModeTemp = '';
 let ScannerSensitivity = 0;
 let ScannerSpectrumLimiterValue = 0; 
-let ScannerLimiterOpacity = 0.2;
+let ScannerLimiterOpacity = SCAN_COVERAGE_OPACITY;
 
 // localStorage variables
 //localStorageItem.enableHold located in getCurrentAntenna()
+//localStorageItem.highlightedFreqs located in displayHighlightedFreqs()
+//localStorageItem.currentLanguage located in getCurrentLanguage()
 localStorageItem.enableSmoothing = localStorage.getItem('enableSpectrumGraphSmoothing') === 'true';                 // Smooths the graph edges
 localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphFixedVerticalGraph') === 'true';     // Fixed/dynamic vertical graph based on peak signal
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
 localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';     // Move above signal graph canvas
 localStorageItem.disableNoiseFloorLabel = localStorage.getItem('enableSpectrumHideNoiseFloorLabel') === 'true';     // Display noise floor signal label
 
+/* ==================================================
+                    ERROR HANDLING
+   ================================================== */
+function getCallerLine() {
+  const error = new Error();
+  const stack = error.stack.split("\n");
+
+  const callerLine = stack[2].trim();
+
+  const match = callerLine.match(/(?:\/|\\)([^\/\\]+):(\d+):(\d+)/);
+
+  if (match) {
+    const filename = match[1];  // Filename only
+    const line = match[2];      // Line number
+    const column = match[3];    // Column number
+    return `[${filename}:${line}:${column}]`;  // Filename with line:column
+  }
+
+  return "unknown";  // Fallback
+}
+
 function logInfo(...msg) {
   console.log(`[${pluginName}]`, ...msg);
 }
 
-function logError(...msg) {
-  console.error(`[${pluginName}]`, ...msg);
+function logWarn(...msg) {
+  console.warn(
+    `[${pluginName}] ${msg.join(' ')} %c${getCallerLine()}`, 
+    'color: #A3C9F6;'
+  );
 }
+
+function logError(...msg) {
+  console.error(
+    `[${pluginName}] ${msg.join(' ')} %c${getCallerLine()}`, 
+    'color: #A3C9F6;'
+  );
+}
+
+/* ==================================================
+                    LANGUAGE HANDLING
+   ================================================== */
+if (localStorage.getItem('enableSpectrumCurrentLanguage')) {
+  currentLanguage = localStorage.getItem('enableSpectrumCurrentLanguage');
+} else {
+  const browserLanguage = navigator.language || navigator.userLanguage;
+  const languageCode = browserLanguage.split('-')[0];
+  const fullLanguageCode = browserLanguage.toLowerCase();
+
+  if (translations[fullLanguageCode]) {
+    currentLanguage = fullLanguageCode;
+  } else if (translations[languageCode]) {
+    currentLanguage = languageCode;
+  } else {
+    currentLanguage = 'en'; // Fallback
+  }
+}
+
+function getCurrentLanguage() {
+    localStorageItem.currentLanguage = `enableSpectrumCurrentLanguage`;
+
+    // Check if language is saved in localStorage
+    const saved = localStorage.getItem(localStorageItem.currentLanguage);
+
+    if (saved) {
+        currentLanguage = saved;
+    } else {
+        // Get browser language
+        const browserLanguage = navigator.language || navigator.userLanguage;
+        const languageCode = browserLanguage.split('-')[0].replace('-', '_');
+        const fullLanguageCode = browserLanguage.toLowerCase().replace('-', '_'); // Convert '-' to '_' for 'translations' variable
+
+        if (translations[fullLanguageCode]) {
+          currentLanguage = fullLanguageCode;
+        } else if (translations[languageCode]) {
+          currentLanguage = languageCode;
+        } else {
+          currentLanguage = 'en';  // Fallback
+        }
+    }
+}
+
+function getTranslatedText(key) {
+  getCurrentLanguage();
+
+  if (translations[currentLanguage] && translations[currentLanguage][key]) {
+    return translations[currentLanguage][key];
+  } else {
+    return translations['en'][key];
+  }
+}
+
+/* ==================================================
+                    LANGUAGE MENU
+   ================================================== */
+function createLanguageContextMenu(x, y) {
+    getCurrentLanguage();
+
+    // Hide tooltips
+    function hideTooltip(delay) {
+        setTimeout(() => {
+            const tooltipWrapper = document.querySelector('.tooltip-wrapper');
+            if (tooltipWrapper) {
+                tooltipWrapper.style.transition = 'opacity 0.2s';
+                tooltipWrapper.style.opacity = 0;
+
+                setTimeout(() => {
+                    tooltipWrapper.style.display = 'none';
+                }, 200);
+            }
+        }, delay);
+    }
+
+    [0, 200, 400].forEach(hideTooltip);
+
+    $('.language-context-menu').remove();
+
+    const menu = $('<div class="language-context-menu bg-color-4"></div>');
+
+    Object.entries(translations).forEach(([lang, data]) => {
+        const label = data.__name || lang;
+
+        menu.append(`
+            <div data-lang="${lang}">
+                ${label}
+            </div>
+        `);
+    });
+
+    menu.hide();
+    $('body').append(menu);
+    menu.fadeIn(200);
+
+    // Clamp to viewport
+    const menuWidth = 120;
+    const menuHeight = 200;
+    x = Math.min(x, window.innerWidth - menuWidth);
+    y = Math.min(y, window.innerHeight - menuHeight);
+
+    menu.css({
+        position: 'fixed',
+        top: y,
+        left: x,
+        background: 'var(--color-1)',
+        border: '1px solid var(--color-2)',
+        borderRadius: '6px',
+        padding: '4px 0',
+        zIndex: 10,
+        color: 'var(--color-5)',
+        fontSize: '13px',
+        minWidth: `${menuWidth}px`,
+        boxShadow: '0 6px 18px rgba(0,0,0,0.35)'
+    });
+
+    menu.find('div').each(function () {
+        const lang = $(this).data('lang');
+
+        $(this).css({
+            padding: '6px 12px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            userSelect: 'none'
+        });
+
+        // Active language
+        if (lang === currentLanguage) {
+            $(this)
+                .addClass('active-language')
+                .append('<span>\u2713</span>');
+        }
+    }).hover(
+        function () { $(this).addClass('bg-color-2'); },
+        function () { $(this).removeClass('bg-color-2'); }
+    );
+
+    // Selection
+    menu.on('mouseup', 'div', function (e) {
+        if (e.which !== 1) return;
+
+        currentLanguage = $(this).data('lang');
+        localStorage.setItem(localStorageItem.currentLanguage, currentLanguage);
+
+        logInfo('Language changed to:', currentLanguage);
+        closeMenu();
+
+        // Redraw
+        if (isSpectrumOn) displaySdrGraph(false);
+
+        const SpectrumButton = $('#spectrum-graph-button');
+        // Update HTML attribute and jQuery cache
+        SpectrumButton.attr('data-tooltip', getTranslatedText('spectrumGraph'));
+        SpectrumButton.data('tooltip', getTranslatedText('spectrumGraph'));
+    });
+
+    function closeMenu() {
+        menu.animate({ opacity: 0 }, 200, () => {
+            menu.remove();
+        });
+        $(document).off('keydown.languageMenu');
+    }
+
+    // Close on outside click
+    setTimeout(() => {
+        $(document).one('click', closeMenu);
+    }, 0);
+
+    // Close on Esc
+    $(document).on('keydown.languageMenu', function (e) {
+        if (e.key === 'Escape') {
+            closeMenu();
+        }
+    });
+}
+
+/* ==================================================
+                    SETUP PLUGIN BUTTON
+   ================================================== */
 
 // Function to handle early button click
 function setupEarlyClickHandler(buttonId) {
@@ -130,14 +575,14 @@ function setupEarlyClickHandler(buttonId) {
                         isPendingOpen = true;
                         logInfo(`Button click while initialising, queuing open request...`);
 
-                        // Replace icon with hourglass
+                        // Replace icon with spinning icon
                         const iconElement = pluginButton.querySelector('i');
                         if (iconElement) {
                             // Store original icon
                             pluginButton._originalIconClasses = iconElement.className;
 
-                            // Hourglass icon
-                            iconElement.className = 'fa-solid fa-spinner';
+                            // Spinning icon
+                            iconElement.className = 'fa-solid fa-spinner fa-spin';
                         }
 
                         // Highlight button
@@ -168,7 +613,7 @@ function setupEarlyClickHandler(buttonId) {
 
 // Function to check if plugin is fully initialised
 function checkPluginInitialization(buttonId) {
-    const maxWaitTime = 15000; // Maximum wait time
+    const maxWaitTime = 60000; // Maximum wait time
     const checkInterval = 100; // Check interval
     let elapsedTime = 0;
 
@@ -344,7 +789,7 @@ function enableButtonInteractions(buttonId) {
             // Additional code
             const pluginButton = document.getElementById(`${buttonId}`);
             if (pluginButton && window.innerWidth < 480 && window.innerHeight > window.innerWidth) {
-                pluginButton.setAttribute('data-tooltip', 'Resolution too low to display');
+                pluginButton.setAttribute('data-tooltip', getTranslatedText('resolutionTooLowToDisplay'));
             }
         }
     });
@@ -354,49 +799,69 @@ function enableButtonInteractions(buttonId) {
 
 // Create Spectrum Graph button
 function createButton(buttonId) {
-    (function waitForFunction() {
-        const maxWaitTime = 30000;
+    return new Promise((resolve, reject) => {
+        // Remove any existing button
+        const existingButton = document.getElementById(buttonId);
+        if (existingButton) existingButton.remove();
+
+        const maxWaitTime = 90000;
         let functionFound = false;
 
         const observer = new MutationObserver((mutationsList, observer) => {
             if (typeof addIconToPluginPanel === 'function') {
                 observer.disconnect();
-                addIconToPluginPanel(buttonId, "Spectrum", "solid", "chart-area", "Spectrum Graph");
+
+                // Create the button
+                addIconToPluginPanel(buttonId, "Spectrum", "solid", "chart-area", getTranslatedText('spectrumGraph'));
                 functionFound = true;
+
+                // Add right-click listener
+                $(document).on('contextmenu', `#${buttonId}`, function (e) {
+                    e.preventDefault();
+                    createLanguageContextMenu(e.clientX, e.clientY);
+                });
+
+                getCurrentLanguage();
 
                 // Setup early click handler to queue clicks during initialisation
                 setupEarlyClickHandler(buttonId);
 
                 // Wait for plugin initialisation before enabling button
                 checkPluginInitialization(buttonId);
+
+                // Additional code
+                requestAnimationFrame(() => {
+                    displaySignalCanvas();
+                });
+
+                // Resolve the promise when button is created and listeners are added
+                resolve(document.getElementById(buttonId));
             }
         });
 
         observer.observe(document.body, { childList: true, subtree: true });
 
+        // Timeout if it takes too long
         setTimeout(() => {
             observer.disconnect();
             if (!functionFound) {
                 logError(`Function addIconToPluginPanel not found after ${maxWaitTime / 1000} seconds.`);
+                reject('addIconToPluginPanel not found');
             }
         }, maxWaitTime);
-    })();
 
-    const aSpectrumCss = `
+        // Inject the hover CSS
+        const aSpectrumCss = `
 #${buttonId}:hover {
     color: var(--color-5);
     filter: brightness(120%);
 }
 `;
 
-    $("<style>")
-        .prop("type", "text/css")
-        .html(aSpectrumCss)
-        .appendTo("head");
-
-    // Additional code
-    $(window).on('load', function() {
-        setTimeout(displaySignalCanvas, 200);
+        $("<style>")
+            .prop("type", "text/css")
+            .html(aSpectrumCss)
+            .appendTo("head");
     });
 }
 
@@ -473,15 +938,49 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
         }
     }
 
-    $(window).on('load', function() {
-        setTimeout(initializeSpectrumButton, 200);
+    document.addEventListener('DOMContentLoaded', function () {
+        let countdownTime = 800;
+        let countdownTimer;
+        let isClickRegistered = false;
+        let isButtonDisabled = false;
+
+        setTimeout(function() {
+            initializeSpectrumButton();
+
+            countdownTimer = setInterval(function() {
+                countdownTime -= 100;
+                if (countdownTime <= 0) {
+                    clearInterval(countdownTimer);
+                }
+            }, 100);
+        }, 200);
 
         aSpectrumButton.on('click', function() {
-            toggleSpectrum();
+            if (isButtonDisabled) {
+                return;
+            }
+
+            if (!isClickRegistered && countdownTime > 0) {
+                isClickRegistered = true;
+
+                isButtonDisabled = true;
+                setTimeout(function() {
+                    isButtonDisabled = false;
+                }, 800);
+
+                setTimeout(function() {
+                    toggleSpectrum();
+                }, countdownTime);
+            } else if (countdownTime <= 0) {
+                toggleSpectrum();
+            }
         });
     });
 }
 
+/* ==================================================
+                    SETUP CANVAS
+   ================================================== */
 function getCurrentDimensions() {
     const signalCanvasDimensions = document.querySelector('.canvas-container');
     if (signalCanvasDimensions) {
@@ -599,7 +1098,14 @@ function isDrawAboveCanvas() {
 }
 
 function monitorCanvasHeight() {
-    const targetNode = document.querySelector('.wrapper-outer .canvas-container canvas');
+    const targetNode = document.querySelector('.wrapper-outer .canvas-container canvas') || document.querySelector('#wrapper-outer #wrapper .canvas-container');
+
+    // Check if targetNode exists
+    if (!targetNode) {
+        logWarn('Canvas element not found!'); // Likely an unrecognised FM-DX Webserver version
+        return;
+    }
+
     const config = { attributes: true, attributeFilter: ['style'], childList: false, subtree: false };
     const callback = (mutationsList, observer) => {
         for (let mutation of mutationsList) {
@@ -642,6 +1148,10 @@ document.addEventListener('DOMContentLoaded', () => {
     getCurrentDimensions();
 });
 
+/* ==================================================
+                    WEBSOCKET
+   ================================================== */
+
 // Create the WebSocket connection
 const currentURL = new URL(window.location.href);
 const WebserverURL = currentURL.hostname;
@@ -665,24 +1175,50 @@ async function setupSendSocket() {
                     const buttonQuery = document.querySelector('#spectrum-scan-button');
                     if (buttonQuery && data.hasOwnProperty('isScanning')) {
                         tuningEnabled = true; // Enable mouse tuning
+                        isScanInitiated = false;
                         buttonQuery.style.cursor = 'pointer';
+                        buttonQuery.classList.remove('is-grayscale');
+                        buttonQuery.disabled = false;
+
+                        const btnQuery = document.querySelectorAll('.spectrum-band-button');
+                        if (btnQuery) {
+                            btnQuery.forEach(button => {
+                                button.style.cursor = 'pointer';
+                                button.classList.remove('is-grayscale');
+                                button.disabled = false;
+                            });
+                        }
+
                         clearTimeout(buttonTimeout);
                     }
 
-                    if (data.type === 'spectrum-graph') {
+                    if (data.type === 'spectrum-graph-scan-success') {
                         const buttonQuery = document.querySelector('#spectrum-scan-button');
-                        tuningEnabled = false; // Disable mouse tuning
-                        if (buttonQuery) buttonQuery.style.cursor = 'wait';
-                        clearTimeout(buttonTimeout);
-                        buttonTimeout = setTimeout(function() {
-                            tuningEnabled = true; // Enable mouse tuning
-                            if (buttonQuery) buttonQuery.style.cursor = 'pointer';
-                        }, 3000);
+
+                        // Disable mouse tuning 'tuningEnabled' located in 'insertUpdateText' to not affect admins while server is locked
+
+                        isUpdating = true;
+
+                        if (!graphError && isGraphOpen && data.hasOwnProperty('scanSuccess') && data.scanSuccess) {
+                            isScanInitiated = true;
+                            insertUpdateText(
+                                `<div style="text-align:center"><i class="fa-solid fa-arrows-rotate fa-spin" style="margin-top: 5px; font-size: 16px;"></i><br>` + getTranslatedText('scanning') + `...</div>`,
+                                5,
+                                false,
+                                true,
+                                ScannerIsScanning ? 56 : 0,
+                                true,
+                                true
+                            );
+                        }
+
                         logInfo(`Command sent`);
                     }
 
                     // Handle 'sigArray' data
                     if (data.type === 'sigArray') {
+                        isUpdating = false;
+                        if (!graphError && isGraphOpen) insertUpdateText(false, 5, true);
                         logInfo(`Received sigArray.`);
                         sigArray = data.value;
                         if (sigArray.length > 0) {
@@ -695,10 +1231,9 @@ async function setupSendSocket() {
                                     if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
                                     item.sig = sig.toFixed(2);
                                 });
-                                logInfo(`Calibrated sigArray.`);
                             }
 
-                            if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
+                            if (CAL90000 || CAL95500 || CAL100500 || CAL105500) logInfo(`Calibrated sigArray.`);
                         }
                         if (debug) {
                             if (Array.isArray(data.value)) {
@@ -710,7 +1245,11 @@ async function setupSendSocket() {
                                 logError(`Expected array for sigArray, but received:`, data.value);
                             }
                         }
-                        getCurrentAntenna();
+
+                        // Wait for initializeGraph before drawing
+                        initializeGraph(undefined, true).then(() => {
+                            if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
+                        });
                     }
 
                     // Scanner plugin code by Highpoint2000
@@ -724,7 +1263,7 @@ async function setupSendSocket() {
                             }
                         }
 
-                        if (eventData.value.Scan !== undefined && eventData.value.Scan !== null) {
+                        if (eventData.value.Scan !== undefined && eventData.value.Scan !== null && eventData.value.Scan !== '') {
                             if (eventData.value.Scan === 'on') {
                                 ScannerIsScanning = true;
                             } else {
@@ -767,103 +1306,19 @@ async function setupSendSocket() {
         }
     }
 }
+
 // WebSocket and scanner button initialisation
-setupSendSocket();
+(function() {
+    if (window.socket) setupSendSocket();
+    else if (window.socketPromise) window.socketPromise.then(setupSendSocket);
+})();
 
 // Function for update notification in /setup
-function checkUpdate(setupOnly, pluginVersion, pluginName, urlUpdateLink, urlFetchLink) {
-    if (setupOnly && window.location.pathname !== '/setup') return;
+function checkUpdate(e,t,n,o,i){if(e&&"/setup"!==location.pathname)return;async function r(){try{const e=await fetch(i);if(!e.ok)throw new Error("["+n+"] update check HTTP error! status: "+e.status);const t=(await e.text()).split("\n");let o;if(t.length>2){const e=t.find(e=>e.includes("const pluginVersion =")||e.includes("const plugin_version ="));if(e){const t=e.match(/const\s+plugin[_vV]ersion\s*=\s*['"]([^'"]+)['"]/);t&&(o=t[1])}}return o||(o=t[0]),o}catch(e){return logError("Error fetching file:",e),null}}function a(e,t,n,o){if("/setup"===location.pathname){const i=document.getElementById("plugin-settings");if(i){const r=i.textContent.trim(),a=`<a href="${o}" target="_blank">[${n}] Update available: ${e} --> ${t}</a><br>`;"No plugin settings are available."===r?i.innerHTML=a:i.innerHTML+=" "+a}const r=document.querySelector(".wrapper-outer #navigation .sidenav-content .fa-puzzle-piece")||document.querySelector(".wrapper-outer .sidenav-content")||document.querySelector(".sidenav-content"),a=document.createElement("span");a.style.cssText="display:block;width:12px;height:12px;border-radius:50%;background:#FE0830;margin-left:82px;margin-top:-12px",r.appendChild(a)}}r().then(e=>{e&&e!==t&&(updateText=getTranslatedText('newVersion') || `There is a new version of Spectrum Graph available`,logInfo(updateText),a(t,e,n,o))})}CHECK_FOR_UPDATES&&checkUpdate(pluginSetupOnlyNotify,pluginVersion,pluginName,pluginHomepageUrl,pluginUpdateUrl);
 
-    // Function to check for updates
-    async function fetchFirstLine() {
-        const urlCheckForUpdate = urlFetchLink;
-
-        try {
-            const response = await fetch(urlCheckForUpdate);
-            if (!response.ok) {
-                throw new Error(`[${pluginName}] update check HTTP error! status: ${response.status}`);
-            }
-
-            const text = await response.text();
-            const lines = text.split('\n');
-
-            let version;
-
-            if (lines.length > 2) {
-                const versionLine = lines.find(line => line.includes("const pluginVersion =") || line.includes("const plugin_version ="));
-                if (versionLine) {
-                    const match = versionLine.match(/const\s+plugin[_vV]ersion\s*=\s*['"]([^'"]+)['"]/);
-                    if (match) {
-                        version = match[1];
-                    }
-                }
-            }
-
-            if (!version) {
-                version = lines[0]; // Fallback to first line
-            }
-
-            return version;
-        } catch (error) {
-            logError(`Error fetching file:`, error);
-            return null;
-        }
-    }
-
-    // Check for updates
-    fetchFirstLine().then(newVersion => {
-        if (newVersion) {
-            if (newVersion !== pluginVersion) {
-                let updateConsoleText = "There is a new version of this plugin available";
-                // Any custom code here
-                updateText = updateConsoleText; // Spectrum Graph only
-                logInfo(`${updateConsoleText}`);
-                setupNotify(pluginVersion, newVersion, pluginName, urlUpdateLink);
-            }
-        }
-    });
-
-    function setupNotify(pluginVersion, newVersion, pluginName, urlUpdateLink) {
-        if (window.location.pathname === '/setup') {
-          const pluginSettings = document.getElementById('plugin-settings');
-          if (pluginSettings) {
-            const currentText = pluginSettings.textContent.trim();
-            const newText = `<a href="${urlUpdateLink}" target="_blank">[${pluginName}] Update available: ${pluginVersion} --> ${newVersion}</a><br>`;
-
-            if (currentText === 'No plugin settings are available.') {
-              pluginSettings.innerHTML = newText;
-            } else {
-              pluginSettings.innerHTML += ' ' + newText;
-            }
-          }
-
-          const updateIcon = document.querySelector('.wrapper-outer #navigation .sidenav-content .fa-puzzle-piece') || document.querySelector('.wrapper-outer .sidenav-content') || document.querySelector('.sidenav-content');
-
-          const redDot = document.createElement('span');
-          redDot.style.display = 'block';
-          redDot.style.width = '12px';
-          redDot.style.height = '12px';
-          redDot.style.borderRadius = '50%';
-          redDot.style.backgroundColor = '#FE0830' || 'var(--color-main-bright)'; // Prefer set colour over theme colour
-          redDot.style.marginLeft = '82px';
-          redDot.style.marginTop = '-12px';
-
-          updateIcon.appendChild(redDot);
-        }
-    }
-}
-
-if (CHECK_FOR_UPDATES) {
-    checkUpdate(
-        pluginSetupOnlyNotify,  // Check only in /setup
-        pluginVersion,          // Plugin version (string)
-        pluginName,             // Plugin name
-        pluginHomepageUrl,      // Update link URL
-        pluginUpdateUrl,        // Update check URL
-    );
-}
-
-// Signal units
+/* ==================================================
+                    SIGNAL UNITS
+   ================================================== */
 prevSignalText = signalText;
 
 function signalUnits() {
@@ -909,8 +1364,185 @@ function applyFadeEffect(buttonId, opacity, scale) {
     }
 }
 
+/* ==================================================
+                    CREATE BUTTONS
+   ================================================== */
+
+// Functions to assist button fade when mouse leaves canvas
+const ButtonFadeManager = {
+    isHoveringCanvas: false,
+    hasEnteredCanvas: false,
+    buttonsFaded: false,
+    fadeTimeout: null,
+    resetTimeout: null,
+    fadeDelay: 5000, // ms
+    fadeDelayInitial: 30000, // ms
+
+    getButtons() {
+        return document.querySelectorAll('#sdr-graph-button-container button');
+    },
+
+    updateButtonOpacity() {
+        const buttons = this.getButtons();
+
+        // Ensure all buttons have smooth transition
+        buttons.forEach(button => {
+            button.style.transition = 'opacity 1s ease';
+        });
+
+        if (!this.hasEnteredCanvas || this.isHoveringCanvas) {
+            buttons.forEach(button => (button.style.opacity = '0.8'));
+            this.buttonsFaded = false;
+
+            // Cancel any pending fade
+            if (this.fadeTimeout) {
+                clearTimeout(this.fadeTimeout);
+                this.fadeTimeout = null;
+            }
+        } else {
+            if (this.buttonsFaded) {
+                buttons.forEach(button => {
+                    button.style.opacity = button.classList.contains('button-on') ? '0.6' : '0.5';
+                });
+            } else {
+                // Schedule fade if not already pending
+                if (!this.fadeTimeout) {
+                    this.fadeTimeout = setTimeout(() => {
+                        const allButtons = this.getButtons();
+                        allButtons.forEach(button => {
+                            button.style.opacity = button.classList.contains('button-on') ? '0.6' : '0.5';
+                        });
+                        this.buttonsFaded = true;
+                        this.fadeTimeout = null;
+                    }, this.fadeDelay);
+                }
+            }
+        }
+    },
+
+    onMouseEnter() {
+        this.isHoveringCanvas = true;
+        this.hasEnteredCanvas = true;
+        this.updateButtonOpacity();
+    },
+
+    onMouseLeave() {
+        this.isHoveringCanvas = false;
+        this.updateButtonOpacity();
+    },
+
+    refresh() {
+        this.updateButtonOpacity();
+    },
+
+    attach(canvasSelector) {
+        const canvas = document.querySelector(canvasSelector);
+        canvas.addEventListener('mouseenter', () => this.onMouseEnter());
+        canvas.addEventListener('mouseleave', () => this.onMouseLeave());
+    },
+
+    // External function to set hasEnteredCanvas to true after timeout
+    setHasEnteredCanvasAfterDelay() {
+        if (!this.hasEnteredCanvas) {
+            this.resetTimeout = setTimeout(() => {
+                this.hasEnteredCanvas = true;
+                this.updateButtonOpacity();
+            }, this.fadeDelayInitial);
+        }
+    }
+};
+
 // Create scan button to refresh graph
-function ScanButton() {
+function ScanButton(customRangesOnly, applyFade = true) {
+
+    // Override tooltip for custom ranges
+    function initCustomRangeTooltips(target = null) {
+        // Define scope: all tooltips or specific one if target is provided
+        const tooltips = target ? $(target) : $('.custom-tooltip');
+        
+        // Unbind existing event handlers before rebinding to avoid duplication
+        tooltips.off('mouseenter mouseleave');
+        
+        // Fixed position based on scan button
+        const $scanBtn = $('#spectrum-scan-button');
+        let tooltipTop = 0, tooltipLeft = 0;
+        if ($scanBtn.length) {
+            const scanOffset = $scanBtn.offset();
+            const scanWidth = $scanBtn.outerWidth();
+            tooltipTop = scanOffset.top - 45; // fixed above scan button
+            tooltipLeft = scanOffset.left + scanWidth / 2; // center horizontally
+        }
+        
+        tooltips.hover(function () {
+            if ($(this).closest('.popup-content').length) {
+                return;
+            }        
+
+            const tooltipText = $(this).attr('data-tooltip');
+
+            // Clear existing timeout
+            clearTimeout($(this).data('timeout'));
+
+            // Show tooltip after short delay
+            $(this).data('timeout', setTimeout(() => {
+                $('.tooltip-wrapper').remove();
+
+                const tooltip = $(`
+                    <div class="tooltip-wrapper">
+                        <div class="tooltiptext">${tooltipText}</div>
+                    </div>
+                `);
+                $('body').append(tooltip);
+
+                const tooltipEl = $('.tooltiptext');
+
+                // Apply fixed position
+                tooltipEl.css({
+                    top: tooltipTop,
+                    left: tooltipLeft,
+                    transform: 'translateX(-50%)',
+                    opacity: 1,
+                    position: 'absolute',
+                    pointerEvents: 'none'
+                });
+
+            }, 300));
+        }, function () {
+            clearTimeout($(this).data('timeout'));
+
+            setTimeout(() => {
+                $('.tooltip-wrapper').fadeOut(300, function () { $(this).remove(); });
+            }, 100); 
+        });
+        
+        $('.popup-content').off('mouseenter').on('mouseenter', function () {
+            clearTimeout($('.custom-tooltip').data('timeout'));
+            $('.tooltip-wrapper').fadeOut(300, function () { $(this).remove(); });
+        });
+    }
+
+    if (customRangesOnly) {
+        if (fmButton) {
+            const fmBtn = document.querySelector('.spectrum-band-button[data-scan="scan-0"]');
+            if (fmBtn && fmButton.tooltip) {
+                $(fmBtn).removeData('custom-tooltip');
+                fmBtn.setAttribute('data-tooltip', fmButton.tooltip);
+            }
+        }
+
+        if (Array.isArray(customRanges)) {
+            customRanges.forEach((r, i) => {
+                const btn = document.querySelector(`.spectrum-band-button[data-scan="scan-${i + 1}"]`);
+                if (btn && r.tooltip) {
+                    $(btn).removeData('custom-tooltip');
+                    btn.setAttribute('data-tooltip', r.tooltip);
+                }
+            });
+        }
+
+        return;
+    }
+
     // Remove any existing instances of button
     const existingButtons = document.querySelectorAll('.rectangular-spectrum-button');
     existingButtons.forEach(button => button.remove());
@@ -931,35 +1563,45 @@ function ScanButton() {
     spectrumButton.id = 'spectrum-scan-button';
     spectrumButton.setAttribute('aria-label', 'Perform manual spectrum graph scan');
     spectrumButton.classList.add('rectangular-spectrum-button', 'tooltip');
-    spectrumButton.setAttribute('data-tooltip', 'Perform Manual Scan');
-    spectrumButton.innerHTML = '<i class="fa-solid fa-rotate"></i>';
+    spectrumButton.setAttribute('data-tooltip', getTranslatedText('performManualScan'));
+    spectrumButton.innerHTML = '<span><i class="fa-solid fa-rotate"></i></span>';
     spectrumButton.addEventListener('contextmenu', e => e.preventDefault());
 
     // Add event listener
     let canSendMessage = true;
-    if (isTuningAllowed) {
-        spectrumButton.addEventListener('click', () => {
-            initializeGraph();
-            const message = JSON.stringify({
-                type: 'spectrum-graph',
-                value: {
-                    status: 'scan'
-                },
-            });
-            function sendMessage(message) {
-                if (!canSendMessage || !wsSendSocket) return;
+    spectrumButton.addEventListener('click', () => {
+        tuningEnabledLocally = false;
 
-                if (wsSendSocket) wsSendSocket.send(message);
-                canSendMessage = false;
+        buttonTimeoutLocally = setTimeout(function() {
+            tuningEnabledLocally = true;
+        }, 1000);
 
-                // Cooldown
-                setTimeout(() => {
-                    canSendMessage = true;
-                }, 1000);
-            }
-            sendMessage(message);
+        if (!isTuningAllowed) {
+            logWarn("Tuning is currently locked by the administrator");
+            insertUpdateText(getTranslatedText('spectrumScanLocked'));
+            return;
+        }
+
+        if (canSendMessage) initializeGraph();
+        const message = JSON.stringify({
+            type: 'spectrum-graph',
+            value: {
+                status: 'scan'
+            },
         });
-    }
+        function sendMessage(message) {
+            if (!canSendMessage || !wsSendSocket) return;
+
+            if (wsSendSocket) wsSendSocket.send(message);
+            canSendMessage = false;
+
+            // Cooldown
+            setTimeout(() => {
+                canSendMessage = true;
+            }, 1000);
+        }
+        sendMessage(message);
+    });
 
     // Set container position to relative
     const canvasSdrGraph = document.getElementById('sdr-graph');
@@ -1005,8 +1647,19 @@ function ScanButton() {
         display: flex;
         align-items: center;
         justify-content: center;
+        filter: grayscale(0);
         box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.8);
         z-index: 8;
+    }
+
+    .rectangular-spectrum-button span {
+        align-items: center;
+        justify-content: center;
+    }
+
+    .rectangular-spectrum-button.is-grayscale {
+        filter: grayscale(1);
+        opacity: 0.5 !important;
     }
 `;
 
@@ -1017,12 +1670,12 @@ function ScanButton() {
     /*
     ToggleAddButton(Id,                             Tooltip,                    FontAwesomeIcon,    localStorageVariable,   localStorageKey,                ButtonPosition)
     */
-    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',   'Hold peaks'); //ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
-    ToggleAddButton('smoothing-on-off-button',      'Smooth Graph Edges',       'chart-area',       'enableSmoothing',      'Smoothing',                    '96',   'Visually smooth graph edges');
-    ToggleAddButton('fixed-dynamic-on-off-button',  'Relative/Fixed Scale',     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136',  'Toggle between relative or fixed scale');
-    ToggleAddButton('auto-baseline-on-off-button',  'Auto Baseline',            'a',                'isAutoBaseline',       'AutoBaseline',                 '176',  'Auto baseline (adjust graph for noise floor)');
+    ToggleAddButton('hold-button',                  getTranslatedText('holdPeaks'),               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',   'Hold peaks'); // ToggleAddButton 'hold-button' located in getCurrentAntenna(), added here only to keep buttons in order
+    ToggleAddButton('smoothing-on-off-button',      getTranslatedText('smoothGraphEdges'),       'chart-area',       'enableSmoothing',      'Smoothing',                    '96',   'Visually smooth graph edges');
+    ToggleAddButton('fixed-dynamic-on-off-button',  getTranslatedText('relativeFixedScale'),     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136',  'Toggle between relative or fixed scale');
+    ToggleAddButton('auto-baseline-on-off-button',  getTranslatedText('autoBaseline'),            'a',                'isAutoBaseline',       'AutoBaseline',                 '176',  'Auto baseline (adjust graph for noise floor)');
     if (drawAboveCanvasIsPossible) {
-    ToggleAddButton('draw-above-canvas',            'Move Above Signal Graph', 
+    ToggleAddButton('draw-above-canvas',            getTranslatedText('moveAboveSignalGraph'), 
                                               drawAboveCanvasOverridePosition ? 'turn-down' : 
                                                                                 'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            '216',  'Move spectrum graph above signal graph');
 
@@ -1041,22 +1694,24 @@ function ScanButton() {
     if (updateText) insertUpdateText(updateText);
 
     // Fade effect for buttons
-    applyFadeEffect('spectrum-scan-button', 0, 0.96);
-    applyFadeEffect('hold-button', 0, 0.96);
-    applyFadeEffect('smoothing-on-off-button', 0, 0.96);
-    applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
-    applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
-    applyFadeEffect('draw-above-canvas', 0, 0.96);
+    if (applyFade) {
+        applyFadeEffect('spectrum-scan-button', 0, 0.96);
+        applyFadeEffect('hold-button', 0, 0.96);
+        applyFadeEffect('smoothing-on-off-button', 0, 0.96);
+        applyFadeEffect('fixed-dynamic-on-off-button', 0, 0.96);
+        applyFadeEffect('auto-baseline-on-off-button', 0, 0.96);
+        applyFadeEffect('draw-above-canvas', 0, 0.96);
 
-    setTimeout(() => {
-        // Fade in effect for buttons
-        applyFadeEffect('spectrum-scan-button', 0.8, 1);
-        applyFadeEffect('hold-button', 0.8, 1);
-        applyFadeEffect('smoothing-on-off-button', 0.8, 1);
-        applyFadeEffect('fixed-dynamic-on-off-button', 0.8, 1);
-        applyFadeEffect('auto-baseline-on-off-button', 0.8, 1);
-        applyFadeEffect('draw-above-canvas', 0.8, 1);
-    }, 40);
+        setTimeout(() => {
+            // Fade in effect for buttons
+            applyFadeEffect('spectrum-scan-button', 0.8, 1);
+            applyFadeEffect('hold-button', 0.8, 1);
+            applyFadeEffect('smoothing-on-off-button', 0.8, 1);
+            applyFadeEffect('fixed-dynamic-on-off-button', 0.8, 1);
+            applyFadeEffect('auto-baseline-on-off-button', 0.8, 1);
+            applyFadeEffect('draw-above-canvas', 0.8, 1);
+        }, 40);
+    }
 
     // Fade all buttons on canvas hover
     const sdrGraphCSS = document.querySelector('.canvas-container');
@@ -1065,15 +1720,167 @@ function ScanButton() {
     sdrGraphButtonContainer.style.opacity = 0.8;
     sdrGraphButtonContainer.style.transition = 'opacity 0.5s ease';
 
-    sdrGraphCSS.addEventListener('mouseover', () => {
+    const handleMouseEnter = () => {
       sdrGraphButtonContainer.style.transition = 'opacity 0.5s ease';
       sdrGraphButtonContainer.style.opacity = 1;
+
+      // Remove listener after it runs once
+      sdrGraphCSS.removeEventListener('mouseenter', handleMouseEnter);
+    };
+
+    sdrGraphCSS.addEventListener('mouseenter', handleMouseEnter);
+
+    // Attach button handler to canvas
+    ButtonFadeManager.attach('.canvas-container');
+
+    // ─────────────────────────────────────────────
+    // Additional custom ranges
+    // ─────────────────────────────────────────────
+    let bandMenuTimeout;
+    let canSendCustomMessage = true;
+    let recentlyClicked = false;
+
+    const bandMenu = document.createElement('div');
+    bandMenu.id = 'spectrum-band-menu';
+    bandMenu.style.position = 'absolute';
+    bandMenu.style.top = `${parseInt(topValue) + 26}px`;
+    bandMenu.style.right = '16px';
+    bandMenu.style.display = 'none';
+    bandMenu.style.flexDirection = 'column';
+    bandMenu.style.gap = '2px';
+    bandMenu.style.zIndex = '9';
+    bandMenu.style.pointerEvents = 'auto';
+    bandMenu.style.alignItems = 'stretch';
+    buttonContainer.appendChild(bandMenu);
+
+    // Use a small invisible hover bridge below the scan button
+    const hoverBridge = document.createElement('div');
+    hoverBridge.style.position = 'absolute';
+    hoverBridge.style.top = '0';
+    hoverBridge.style.left = '0';
+    hoverBridge.style.width = '100%';
+    hoverBridge.style.height = 'calc(100% + 4px)'; // in theory 2px is enough
+    hoverBridge.style.pointerEvents = 'auto';
+    hoverBridge.style.background = 'transparent';
+    spectrumButton.appendChild(hoverBridge);
+
+    // Show menu when hovering button or hover bridge
+    [spectrumButton, hoverBridge, bandMenu].forEach(el => {
+        el.addEventListener('mouseenter', () => {
+            if (recentlyClicked) return;
+            clearTimeout(bandMenuTimeout);
+            bandMenu.style.display = 'flex';
+        });
+        el.addEventListener('mouseleave', () => {
+            clearTimeout(bandMenuTimeout);
+            bandMenuTimeout = setTimeout(() => {
+                bandMenu.style.display = 'none';
+            }, 400);
+        });
     });
 
-    sdrGraphCSS.addEventListener('mouseout', () => {
-      sdrGraphButtonContainer.style.transition = 'opacity 1s ease 3s';
-      sdrGraphButtonContainer.style.opacity = 0.8;
-    });
+    function sendScan(mode) {
+        if (!isTuningAllowed || !wsSendSocket) return;
+
+        initializeGraph();
+
+        if (!canSendCustomMessage) return;
+
+        wsSendSocket.send(JSON.stringify({
+            type: 'spectrum-graph',
+            value: { status: mode }
+        }));
+        logInfo('Sent scan command:', mode); // debug
+
+        canSendCustomMessage = false;
+        setTimeout(() => { canSendCustomMessage = true; }, 1000); // cooldown
+    }
+
+    function addBandButton(label, scanMode, tooltip) {
+        const btn = document.createElement('button');
+        btn.textContent = label;
+        btn.classList.add('spectrum-band-button');
+
+        btn.style.width = '32px';
+        btn.style.display = 'flex';
+        btn.style.alignItems = 'center';
+        btn.style.justifyContent = 'center';
+
+        if (tooltip) {
+            btn.classList.add('custom-tooltip');
+            btn.setAttribute('data-tooltip', tooltip);
+            btn.setAttribute('data-scan', scanMode);
+        }
+
+        // Adjust font size based on character count
+        const dynamicFontSize = true;
+        const maxChars = 4; // approximate max characters for full size
+        const baseFontSize = 13; // default font size
+        const fontSize = label.length > maxChars ? Math.floor(baseFontSize * (maxChars / (label.length + 0.25))) : baseFontSize;
+        if (dynamicFontSize) btn.style.fontSize = `${fontSize}px`;
+
+        btn.addEventListener('click', (e) => {
+            tuningEnabledLocally = false;
+
+            buttonTimeoutLocally = setTimeout(function() {
+                tuningEnabledLocally = true;
+            }, 1000);
+
+            e.stopPropagation();
+            bandMenu.style.display = 'none';
+            recentlyClicked = true;
+            const resetOnMove = () => {
+                recentlyClicked = false;
+                document.removeEventListener('mousemove', resetOnMove);
+            };
+            document.addEventListener('mousemove', resetOnMove, { once: true });
+            sendScan(scanMode);
+        });
+
+        bandMenu.appendChild(btn);
+        initCustomRangeTooltips();
+    }
+
+    // Default FM button
+    if (customRanges.length > 0) {
+        if (fmButton) {
+            addBandButton(fmButton.label, 'scan-0', fmButton.tooltip);
+        }
+
+        // Custom ranges
+        customRanges.forEach((r, i) => {
+            addBandButton(r.label, `scan-${i+1}`, r.tooltip);
+        });
+    }
+
+    // Button styles
+    const bandButtonStyle = `
+    .spectrum-band-button {
+        width: 32px;
+        height: 24px;
+        padding: 0;
+        border-radius: 5px;
+        cursor: pointer;
+        opacity: 0.9;
+        font-weight: 600;
+        font-size: 13px;
+        filter: grayscale(0);
+        box-shadow: 0px 2px 5px rgba(0,0,0,0.8);
+    }
+
+    .spectrum-band-button.is-grayscale {
+        filter: grayscale(1);
+        opacity: 0.5 !important;
+        transition: all 0.25s cubic-bezier(.4,0,.2,1);
+    }
+
+    .spectrum-band-button:hover {
+        opacity: 1.6;
+    }
+    `;
+    const bandStyleEl = document.createElement('style');
+    bandStyleEl.innerHTML = bandButtonStyle;
+    document.head.appendChild(bandStyleEl);
 }
 
 // Create button
@@ -1088,7 +1895,7 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     toggleButton.setAttribute('aria-label', `${ariaLabel}`);
     toggleButton.classList.add(`${Id}`, 'tooltip');
     toggleButton.setAttribute('data-tooltip', `${Tooltip}`);
-    toggleButton.innerHTML = `<i class="fa-solid fa-${FontAwesomeIcon}"></i>`;
+    toggleButton.innerHTML = `<span><i class="fa-solid fa-${FontAwesomeIcon}"></i></span>`;
     toggleButton.addEventListener('contextmenu', e => e.preventDefault());
 
     // Button state (off by default)
@@ -1156,9 +1963,16 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
         transform: scale(1);
         z-index: 8;
     }
+
+    .${Id} span {
+        align-items: center;
+        justify-content: center;
+    }
+
     .${Id} i {
         font-size: 14px;
     }
+
     .${Id}.button-on {
         filter: brightness(150%) contrast(110%);
         box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.5), 0 0 10px var(--color-5);
@@ -1175,64 +1989,153 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     document.head.appendChild(styleElement);
 }
 
+/* ==================================================
+                    SETUP ALERTS
+   ================================================== */
+
 // Function to display update text
-function insertUpdateText(updateText) {
-    // Remove any existing update text
-    const existingText = document.querySelector('.spectrum-graph-update-text');
-    if (existingText) existingText.remove();
+function insertUpdateText(updateText, timeout = 10, forceFadeOut = false, isHtml = false, leftMargin, isInstant, onlyIfScanning) {
+    if (!isGraphOpen) return;
+
+    // Remove and fade out existing text if forced
+    if (forceFadeOut === true) {
+        document.querySelectorAll('.spectrum-graph-update-text').forEach(existingText => {
+            clearTimeout(existingText._removeTimeout); // clear its own timeout
+            existingText.style.opacity = '0';
+            existingText.style.transform = 'scale(0.92)';
+            const transitionDuration = parseFloat(getComputedStyle(existingText).transitionDuration) * 1000;
+            setTimeout(() => {
+                if (existingText.parentElement) existingText.remove();
+            }, transitionDuration);
+        });
+        return;
+    }
+
+    // Remove any existing update text (without fade, because new scan will overwrite)
+    document.querySelectorAll('.spectrum-graph-update-text').forEach(existingText => {
+        clearTimeout(existingText._removeTimeout);
+        existingText.remove();
+    });
 
     // Create new text element
     const updateTextElement = document.createElement('div');
     updateTextElement.classList.add('spectrum-graph-update-text');
-    updateTextElement.textContent = updateText;
+    if (isHtml) updateTextElement.innerHTML = updateText;
+    else updateTextElement.textContent = updateText;
 
     // Vertical position
-    let textTop = 32; // normal
-    if (localStorageItem.isAboveSignalCanvas === true) textTop = 32 - canvasFullHeight - 2; 
+    let textTop = 34;
+    if (localStorageItem.isAboveSignalCanvas === true) textTop = 34 - canvasFullHeight - 2;
 
-    // Style the text
-    updateTextElement.style.position = 'absolute';
-    updateTextElement.style.top = `${textTop}px`; // Consider isAboveSignalCanvas
-    updateTextElement.style.left = '40px';
-    updateTextElement.style.color = 'var(--color-5-transparent)';
-    updateTextElement.style.fontSize = '14px';
-    updateTextElement.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-    updateTextElement.style.padding = '4px 8px';
-    updateTextElement.style.borderRadius = '5px';
-    updateTextElement.style.opacity = '1';
-    updateTextElement.style.zIndex = '8';
-    updateTextElement.addEventListener('mouseenter', () => { updateTextElement.style.opacity = '0.1'; });
+    // Style
+    const color1 = getComputedStyle(document.documentElement).getPropertyValue('--color-1').trim();
+    const rgbColor1 = color1.match(/\d+/g);
 
-    // Locate canvas container
+    const backgroundColor = rgbColor1 
+        ? `rgba(${rgbColor1[0]}, ${rgbColor1[1]}, ${rgbColor1[2]}, 0.9)`
+        : 'rgba(16, 16, 16, 0.5)';
+
+    Object.assign(updateTextElement.style, {
+        position: 'absolute',
+        top: `${textTop}px`,
+        left: ((leftMargin || 0) + 44) + 'px',
+        color: 'var(--color-5-transparent)',
+        filter: 'brightness(125%)',
+        fontSize: '14px',
+        textShadow: '0 0 1px rgba(64, 64, 64, 0.4)',
+        transform: 'scale(0.96)',
+        opacity: '0',
+        backgroundColor: backgroundColor,
+        padding: '4px 8px',
+        borderRadius: '5px',
+        zIndex: '3',
+        transition: 'opacity 0.3s cubic-bezier(0.4, 0, 1, 1), transform 0.2s cubic-bezier(0.4, 0, 1, 1)'
+    });
+
+    updateTextElement.addEventListener('mouseenter', () => { 
+        updateTextElement.style.opacity = '0';
+        updateTextElement.style.transform = 'scale(0.92)';
+    });
+
+    // Append
     const canvas = document.getElementById('sdr-graph');
     if (canvas) {
         const canvasContainer = canvas.parentElement;
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
             canvasContainer.style.position = 'relative';
-            setTimeout(() => {
-                canvasContainer.appendChild(updateTextElement);
-            }, 300);
-        } else {
-            logError(`Parent container is not .canvas-container`);
+            clearTimeout(pendingMessage1);
+            pendingMessage1 = setTimeout(() => canvasContainer.appendChild(updateTextElement), ((isFirstMessage && !isHtml) || isInstant ? 60 : 300));
         }
-    } else {
-        logError(`#sdr-graph not found`);
     }
 
-    function resetUpdateTextTimeout() {
-        // Clear any existing timeout
-        clearTimeout(removeUpdateTextTimeout);
+    // Fade in
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            clearTimeout(pendingMessage2);
+            pendingMessage2 = setTimeout(() => {
 
-        // Begin new timeout
-        removeUpdateTextTimeout = setTimeout(() => {
-            const sdrCanvasUpdateText = document.querySelector('.spectrum-graph-update-text');
-            if (sdrCanvasUpdateText) {
-                sdrCanvasUpdateText.remove();
-            }
-        }, 10000);
-    }
-    resetUpdateTextTimeout();
+                // Only show "Scanning..." if scanning status is confirmed
+                if (!onlyIfScanning || isScanInitiated) {
+                    if (isScanInitiated) {
+                        tuningEnabled = false; // Disable mouse tuning
+                        const buttonQuery = document.querySelector('#spectrum-scan-button');
+                        if (buttonQuery) {
+                            buttonQuery.style.cursor = 'wait';
+                            buttonQuery.classList.add('is-grayscale');
+                            buttonQuery.disabled = true;
+                        }
+
+                        const btnQuery = document.querySelectorAll('.spectrum-band-button');
+                        if (btnQuery) {
+                            btnQuery.forEach(button => {
+                                button.style.cursor = 'wait';
+                                button.classList.add('is-grayscale');
+                                button.disabled = true;
+                            });
+                        }
+
+                        clearTimeout(buttonTimeout);
+
+                        buttonTimeout = setTimeout(function() {
+                            tuningEnabled = true; // Enable mouse tuning
+                            if (buttonQuery) {
+                                buttonQuery.style.cursor = 'pointer';
+                                buttonQuery.classList.remove('is-grayscale');
+                                buttonQuery.disabled = false;
+                            }
+                            if (btnQuery) {
+                                btnQuery.forEach(button => {
+                                    button.style.cursor = 'pointer';
+                                    button.classList.remove('is-grayscale');
+                                    button.disabled = false;
+                                });
+                            }
+                            isUpdating = false;
+                        }, 5000);
+                    }
+                    updateTextElement.style.opacity = '1';
+                    updateTextElement.style.transform = 'scale(1.02)';
+                }
+
+            }, ((isFirstMessage && !isHtml) || isInstant ? 80 : 400));
+            if (isFirstMessage) isFirstMessage = false;
+        });
+    });
+
+    // Per-element fade-out
+    updateTextElement._removeTimeout = setTimeout(() => {
+        updateTextElement.style.opacity = '0';
+        updateTextElement.style.transform = 'scale(0.92)';
+        const transitionDuration = parseFloat(getComputedStyle(updateTextElement).transitionDuration) * 1000;
+        setTimeout(() => {
+            if (updateTextElement.parentElement) updateTextElement.remove();
+        }, transitionDuration);
+    }, timeout * 1000);
 }
+
+/* ==================================================
+                    ADMIN CHECK
+   ================================================== */
 
 // Check if administrator code
 var isTuneAuthenticated = false;
@@ -1248,14 +2151,75 @@ function checkAdminMode() {
     const bodyText = document.body.textContent || document.body.innerText;
     isTunerLocked = !!document.querySelector('.fa-solid.fa-key.pointer.tooltip') || !!document.querySelector('.fa-solid.fa-lock.pointer.tooltip');
     isTuneAuthenticated = bodyText.includes("You are logged in as an administrator.") || bodyText.includes("You are logged in as an adminstrator.") || bodyText.includes("You are logged in and can control the receiver.");
-    if (isTuneAuthenticated || (isTunerLocked && isTuneAuthenticated) || (!isTunerLocked && !isTuneAuthenticated)) isTuningAllowed = true;
-    if (isTuneAuthenticated) {
-        logInfo(`Logged in as administrator`);
+    if (!isTunerLocked || isTuneAuthenticated) isTuningAllowed = true;
+    if (isTuneAuthenticated) logInfo(`Logged in as administrator`);
+    if (!isTuningAllowed) {
+        // Unlock after timeout, server-side rejects non-admin regardless
+        setTimeout(() => {
+            isTuningAllowed = true;
+        }, 30000);
     }
 }
 
+/* ==================================================
+                    CHECK ANTENNA SETUP
+                            &
+                    CHECK OUTDATED SCANS
+   ================================================== */
+async function getAntennaNames() {
+    if (cachedAntennaNames) return cachedAntennaNames;
+    if (antennaNamesPromise) return antennaNamesPromise;
+
+    antennaNamesPromise = (async () => {
+        try {
+            const res = await fetch('./static_data');
+            const json = await res.json();
+
+            const ant = json.ant || {};
+            const names = [];
+
+            for (let i = 1; i <= 4; i++) {
+                const antKey = `ant${i}`;
+                if (json?.ant?.enabled) {
+                    names[i - 1] = ant[antKey]?.enabled
+                    ? ant[antKey].name
+                    : null;
+                } else {
+                    names[i - 1] = null;
+                }
+            }
+
+            cachedAntennaNames = names;
+            return names;
+
+        } catch (e) {
+            // Hard fallback
+            cachedAntennaNames = [
+                'Antenna 1',
+                'Antenna 2',
+                'Antenna 3',
+                'Antenna 4'
+            ];
+            return cachedAntennaNames;
+        } finally {
+            antennaNamesPromise = null;
+        }
+    })();
+
+    return antennaNamesPromise;
+}
+
+function updateCachedTimestamps(data) {
+    cachedServerTime = data.serverTime ?? cachedServerTime;
+    for (let i = 0; i < 4; i++) {
+        cachedLastUpdates[i] = data[`lastUpdate${i}`] ?? cachedLastUpdates[i];
+    }
+
+    cachedLastUpdates[0] = data.lastUpdate ?? cachedLastUpdates[0];
+}
+
 // Fetch any available data on page load
-async function initializeGraph() {
+async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCheck) {
     try {
         // Fetch the initial data from endpoint
         const basePath = window.location.pathname.replace(/\/?$/, '/');
@@ -1274,12 +2238,119 @@ async function initializeGraph() {
 
         const data = await response.json();
 
-        if (data.sd && data.isScanComplete === false && isScanCompleteFirstWarn === false) isScanComplete = false;
+        if (checkIfScanningOnly === true) {
+            if (debug) logInfo(`Returning scanStatus only: ${data.scanStatus}`);
+            return data.scanStatus;
+        }
+
+        if (data.sd && data.isScanComplete === false) isScanComplete = false;
 
         // Switch to data of current antenna
         if (data.ad && data.sd && (data.sd0 || data.sd1)) {
             data.sd = data[`sd${data.ad}`];
             currentAntenna = data.ad;
+            isUsingAntennaSwitch = true;
+        } else {
+            isUsingAntennaSwitch = false;
+        }
+
+        if (data.scanStatus) scanStatus = data.scanStatus;
+
+        // --- FM button data ---
+        if (data && typeof data.fmRangeName === 'string' && data.fmRangeName.trim() !== '' &&
+            typeof data.fmRangeFreq === 'string' && data.fmRangeFreq.trim() !== '') {
+            fmButton = {
+                label: data.fmRangeName,
+                tooltip: data.fmRangeFreq
+            };
+        }
+
+        // --- Custom ranges array ---
+        if (data && Array.isArray(data.customRangeNames) && data.customRangeNames.length > 0) {
+            customRanges = data.customRangeNames.map((name, i) => ({
+                label: typeof name === 'string' ? name : '',
+                tooltip: Array.isArray(data.customRangeFreqs) && typeof data.customRangeFreqs[i] === 'string'
+                    ? data.customRangeFreqs[i]
+                    : ''
+            }));
+        }
+
+        if (isGraphOpen) ScanButton(true);
+
+        async function isOutdatedScans() {
+            // Notice if last antenna scan is outdated
+            if (LAST_ANTENNA_SCAN_NOTICE_MINUTES) {
+
+                setTimeout(() => {
+                    outdatedAntennaScanInterval();
+                }, 1000);
+
+                // Update cached timestamps whenever new data arrives
+                updateCachedTimestamps(data);
+
+                const antennaNames = await getAntennaNames();
+
+                const maxAntennas = 4;
+                const serverTime = data.serverTime || 0;
+                const now = Math.floor(serverTime); // Requires server time to ensure accuracy
+                const thresholdSeconds = LAST_ANTENNA_SCAN_NOTICE_MINUTES * 60;
+
+                const allNamesNull = !antennaNames || antennaNames.every(name => !name);
+
+                // Fallback to lastUpdate check if all antenna names are null
+                if (allNamesNull) {
+                    const lastUpdate = data.lastUpdate ?? null;
+
+                    if (
+                        lastUpdate !== null &&
+                        now - lastUpdate > thresholdSeconds
+                    ) {
+                        if (!isUpdating) isLastUpdateOutdated = true;
+                    } else {
+                        isLastUpdateOutdated = false;
+                    }
+
+                    return;
+                }
+
+                // Per-antenna
+                const lastUpdates = [];
+                const outdatedAntennas = [];
+
+                for (let i = 0; i < maxAntennas; i++) {
+                    if (!antennaNames[i]) continue;
+
+                    if (data[`sd${i}`] || (i === 0 && data.sd)) {
+                        lastUpdates[i] = data[`lastUpdate${i}`] ?? data.lastUpdate ?? null;
+                    } else {
+                        lastUpdates[i] = null;
+                    }
+
+                    outdatedAntennas[i] =
+                        lastUpdates[i] !== null &&
+                        now - lastUpdates[i] > thresholdSeconds;
+                }
+
+                // Map outdated antennas to names
+                const outdatedList = outdatedAntennas
+                    .map((isOld, idx) => isOld ? antennaNames[idx] : null)
+                    .filter(Boolean);
+
+                if (outdatedList.length > 0) {
+                    outdatedAntennaList = outdatedList.join(', ');
+                    if (!isUpdating) isLastUpdateOutdated = true;
+                } else {
+                    isLastUpdateOutdated = false;
+                }
+            }
+        }
+
+        await isOutdatedScans();
+
+        if (returnAfterAntennaCheck === true) {
+            if (debug) logInfo(`Returning after isOutdatedScans`);
+            getCurrentAntenna();
+            return;
         }
 
         // Check if `sd` exists
@@ -1291,7 +2362,7 @@ async function initializeGraph() {
                     data.sd = data.sd.slice(0, -2);
                 }
 
-                // Split the response into pairs and process each one (as it normally does server-side)
+                // Handle 'sigArray' data
                 sigArray = data.sd.split(',').map(pair => {
                     let [freq, sig] = pair.split('=');
                     // Signal calibration
@@ -1300,7 +2371,6 @@ async function initializeGraph() {
                         let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
                         sig = parseFloat(sig);
                         if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
-                        logInfo(`Calibrated sigArray.`);
                     }
 
                     return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
@@ -1317,26 +2387,127 @@ async function initializeGraph() {
                     logError(`Expected array for sigArray, but received:`, sigArray);
                 }
             }
+
+            dataError = false;
         } else {
-            logInfo(`Found no data available at page load.`);
             getDummyData();
+            logInfo(`Found no data available at page load.`);
         }
     } catch (error) {
         graphError = true;
-        logError(`Error during graph initialisation.`);
         getDummyData();
+        logError(`Error during graph initialisation.`);
     }
-    getCurrentAntenna();
 
-    const existingText = document.querySelector('.spectrum-graph-update-text');
-    if (existingText) existingText.remove();
+    getCurrentAntenna();
 
     // Initial data loaded
     isInitialDataLoaded = true;
-    //logInfo(`initial data loaded.`);
+    if (debug) logInfo(`initial data loaded.`);
+}
+
+function createdOutdatedNotice() {
+    const t = translations[currentLanguage];
+
+    const agoMin = LAST_ANTENNA_SCAN_NOTICE_MINUTES;
+    const hours = Math.floor(agoMin / 60);
+    const minutes = agoMin % 60;
+
+    let message = t.scanOlderThanXMinutes;
+
+    if (hours > 0) {
+        message = message.replace('{hours}', hours);
+    } else {
+        message = message.replace(/\{hours\}[^\s]+ /, '');
+    }
+
+    if (minutes > 0 || agoMin === 0) {
+        message = message.replace('{minutes}', minutes);
+    } else {
+        message = message.replace(/ \{minutes\}[^\s]+/, '');
+    }
+
+    if (outdatedAntennaList !== '' && isUsingAntennaSwitch) {
+        message = message.replace('{antennas}', outdatedAntennaList);
+    } else {
+        message = message.replace(/ [^\s]+ \{antennas\}/, '');
+    }
+
+    return message + '.';
+}
+
+// Periodically check for outdated antenna scans
+function checkCachedOutdatedAntennaScans() {
+    if (!LAST_ANTENNA_SCAN_NOTICE_MINUTES) return;
+
+    try {
+        const antennaNames = cachedAntennaNames; // previously set once via getAntennaNames()
+        if (!antennaNames || antennaNames.length === 0) return;
+
+        const now = Math.floor(Date.now() / 1000); // use local time
+        const threshold = LAST_ANTENNA_SCAN_NOTICE_MINUTES * 60;
+
+        const allNamesNull = antennaNames.every(name => !name);
+
+        // Fallback if all antenna names are null
+        if (allNamesNull) {
+            const last = cachedLastUpdates?.[0] ?? null;
+
+            if (last && (now - last > threshold)) {
+                isLastUpdateOutdated = true;
+            } else {
+                isLastUpdateOutdated = false;
+            }
+
+            // Trigger message if needed
+            if (!isUpdating && isGraphOpen && !graphError && isLastUpdateOutdated) {
+                isLastUpdateOutdated = false;
+                const msg = createdOutdatedNotice();
+                insertUpdateText(msg, ANTENNA_SCAN_NOTICE_TIMEOUT_SECONDS);
+            }
+
+            return;
+        }
+
+        // Per-antenna
+        const outdated = [];
+
+        for (let i = 0; i < 4; i++) {
+            if (!antennaNames[i]) continue;
+
+            const last = cachedLastUpdates[i] ?? (i === 0 ? cachedLastUpdates[0] : null);
+
+            if (last && (now - last > threshold)) {
+                outdated.push(antennaNames[i]);
+            }
+        }
+
+        if (outdated.length) {
+            outdatedAntennaList = outdated.join(', ');
+            isLastUpdateOutdated = true;
+        } else {
+            isLastUpdateOutdated = false;
+        }
+
+        if (!isUpdating && isGraphOpen && !graphError && isLastUpdateOutdated) {
+            isLastUpdateOutdated = false;
+            const msg = createdOutdatedNotice();
+            insertUpdateText(msg, ANTENNA_SCAN_NOTICE_TIMEOUT_SECONDS);
+        }
+    } catch (err) {
+        logError('checkCachedOutdatedAntennaScans error:', err);
+    }
+}
+
+function outdatedAntennaScanInterval() {
+    if (LAST_ANTENNA_SCAN_NOTICE_MINUTES) {
+        clearInterval(antennaScanInterval);
+        antennaScanInterval = setInterval(checkCachedOutdatedAntennaScans, ANTENNA_SCAN_NOTICE_INTERVAL_SECONDS * 1000);
+    }
 }
 
 function getDummyData() {
+    if (scanStatus !== 'scanning' && scanStatus !== 'rejected') dataError = true;
     let dummyFreqStart = 86;
     let dummyFreqEnd = 108;
     const element = document.querySelector("#dashboard-panel-description.hidden-panel .flex-container .tuner-desc .text-small .color-4");
@@ -1358,10 +2529,10 @@ function getDummyData() {
 }
 
 // Call function on page load
-if (window.location.pathname !== '/setup') window.addEventListener('load', initializeGraph);
+if (window.location.pathname !== '/setup') document.addEventListener('DOMContentLoaded', initializeGraph);
 
 // Fetch current antenna
-async function getCurrentAntenna() {
+async function getCurrentAntenna(draw = true) {
     try {
         // Fetch the initial data from api
         const basePath = window.location.pathname.replace(/\/?$/, '/');
@@ -1373,17 +2544,19 @@ async function getCurrentAntenna() {
                 if (data.ant) {
                     currentAntenna = data.ant;
                     logInfo(`Data found for antenna ${data.ant}.`);
-
-                    const existingText = document.querySelector('.spectrum-graph-update-text');
-                    if (existingText) existingText.remove();
                 }
+
+                displayHighlightedFreqs(); // Used for right-click
 
                 // Hold peaks antenna localStorage
                 localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
-                if (isGraphOpen) ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',  'Hold peaks');
+                if (isGraphOpen) {
+                    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',  'Hold peaks');
+                    ButtonFadeManager.refresh(); // Called after a button redraw
+                }
                 if (typeof initTooltips === 'function') initTooltips();
                 outlinePointsSavePermission = !localStorageItem.enableHold;
-                if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
+                if (draw) if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
             })
             .catch(error => {
                 logError(`Error fetching api data:`, error);
@@ -1393,6 +2566,10 @@ async function getCurrentAntenna() {
     }
 }
 
+/* ==================================================
+                    CANVAS DISPLAY
+   ================================================== */
+
 // Display signal canvas (default)
 function displaySignalCanvas() {
     // Lock button
@@ -1400,14 +2577,37 @@ function displaySignalCanvas() {
     if (pluginButton) {
         pluginButton.classList.remove('active');
         if (isGraphOpen) pluginButton.disabled = true;
-        setTimeout(() => {
+
+        const fadeElement = document.getElementById('signal-canvas'); // fading element
+
+        if (!fadeElement) {
             pluginButton.disabled = false;
-        }, 400);
+            return;
+        }
+
+        const onTransitionEnd = (e) => {
+            if (e.target !== fadeElement) return;
+            if (e.propertyName !== 'opacity') return;
+
+            fadeElement.removeEventListener('transitionend', onTransitionEnd);
+            pluginButton.disabled = false;
+        };
+
+        fadeElement.addEventListener('transitionend', onTransitionEnd);
     } else {
-        if (window.location.pathname !== '/setup') console.warn(`[${pluginName}] Function 'addIconToPluginPanel' not found or resolution too low to display.`);
+        if (window.location.pathname !== '/setup') {
+            if (typeof addIconToPluginPanel === 'function') {
+                console.warn(`[${pluginName}] Function 'addIconToPluginPanel' not found.`);
+            } else {
+                console.warn(`[${pluginName}] Resolution too low to display.`);
+            }
+        }
     }
 
     const sdrCanvas = document.getElementById('sdr-graph');
+
+    if (!graphError && isGraphOpen && sdrCanvas) insertUpdateText(false, 5, true); // Fade out any notices
+
     if (sdrCanvas) {
         sdrCanvas.style.display = 'block';
         // Fade effect
@@ -1495,7 +2695,7 @@ function displaySignalCanvas() {
 }
 
 // Display SDR graph output
-function displaySdrGraph() {
+function displaySdrGraph(applyFade = true) {
     // Show canvas
     const sdrGraph = document.getElementById('sdr-graph');
     if (sdrGraph) sdrGraph.style.display = 'block';
@@ -1517,7 +2717,11 @@ function displaySdrGraph() {
             sdrCanvas.style.opacity = 1;
             sdrCanvas.style.transform = 'scale(1)';
             isGraphOpen = true;
-            if (!BORDERLESS_THEME) canvas.style.border = "1px solid var(--color-3)";
+            ButtonFadeManager.setHasEnteredCanvasAfterDelay();
+            if (!BORDERLESS_THEME) {
+                canvas.style.border = "1px solid var(--color-3)";
+                canvas.style.borderRadius = "16px";
+            }
             setTimeout(drawGraph, drawGraphDelay);
             const signalCanvas = document.getElementById('signal-canvas');
             if (signalCanvas) {
@@ -1564,12 +2768,12 @@ function displaySdrGraph() {
         if (ContainerAntenna) {
             ContainerAntenna.style.display = 'none';
         }
-        ScanButton();
+        ScanButton(false, applyFade);
     }, 40);
 }
 
 // Adjust dataCanvas height based on window height
-function adjustSdrGraphCanvasHeight() {
+function adjustSdrGraphCanvasHeight(draw = true) {
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches && window.innerWidth <= 480) {
         displaySignalCanvas(); // Ensure it doesn't appear in portrait mode
     } else {
@@ -1578,7 +2782,7 @@ function adjustSdrGraphCanvasHeight() {
         } else {
             canvas.height = canvasHeightLarge;
         }
-        drawGraph();
+        if (draw) drawGraph();
     }
 }
 
@@ -1614,7 +2818,7 @@ function toggleSpectrum() {
         }
 
         // Set initial height with delay
-        setTimeout(adjustSdrGraphCanvasHeight, 400);
+        setTimeout(adjustSdrGraphCanvasHeight(false), 400);
     } else {
         // Update button appearance
         SpectrumButton.classList.remove('bg-color-4');
@@ -1635,6 +2839,10 @@ function toggleSpectrum() {
     }
     signalUnits();
 }
+
+/* ==================================================
+                    FREQUENCY OBSERVER
+   ================================================== */
 
 // Observe any frequency changes
 function observeFrequency() {
@@ -1657,7 +2865,12 @@ function observeFrequency() {
         logInfo(`#data-frequency missing`);
     }
 }
+
 observeFrequency();
+
+/* ==================================================
+                    CANVAS INTERACTIONS
+   ================================================== */
 
 // Tooltip and frequency highlighter
 function initializeCanvasInteractions() {
@@ -1839,7 +3052,7 @@ function initializeCanvasInteractions() {
     let wasDragging = false;
 
     function handleClick(event) {
-        if (!ENABLE_MOUSE_CLICK_TO_TUNE || !tuningEnabled) return;
+        if (!ENABLE_MOUSE_CLICK_TO_TUNE || !tuningEnabled || !tuningEnabledLocally) return;
 
         // Prevent frequency selection if is was a drag operation
         if (wasDragging) {
@@ -1869,7 +3082,7 @@ function initializeCanvasInteractions() {
 
     // Function to control frequency via mouse wheel
     function handleWheelScroll(event) {
-        if (ENABLE_MOUSE_SCROLL_WHEEL && tuningEnabled) {
+        if (ENABLE_MOUSE_SCROLL_WHEEL && tuningEnabled && tuningEnabledLocally) {
             event.preventDefault(); // Prevent webpage scrolling
 
             // Normalize deltaY value for cross-browser consistency
@@ -1887,10 +3100,10 @@ function initializeCanvasInteractions() {
 
     // Add event listeners
     let lastTimeThrottled = 0;
-    const throttleDelay = 20; // ms
+    const throttleDelay = 16.667; // ms
 
     function updateTooltipThrottled(event) {
-        const currentTimeThrottled = Date.now();
+        const currentTimeThrottled = performance.now();
         const timeDiffThrottled = currentTimeThrottled - lastTimeThrottled;
 
         if (timeDiffThrottled >= throttleDelay) {
@@ -1979,22 +3192,27 @@ if (window.location.pathname !== '/setup') container.appendChild(canvas);
 function getBackgroundColor(element) {
     return window.getComputedStyle(element).backgroundColor;
 }
-const wrapperOuter = document.getElementById('wrapper');
 
-$(window).on('load', function() {
+const wrapperOuter = document.querySelector('.wrapper-outer.main-content') || document.querySelector('#wrapper-outer');
+
+document.addEventListener('DOMContentLoaded', function () {
     setTimeout(() => {
-        let currentBackgroundColor = getBackgroundColor(wrapperOuter);
-        const observer = new MutationObserver(() => {
-            const newColor = getBackgroundColor(wrapperOuter);
-            if (newColor !== currentBackgroundColor) {
-                setTimeout(() => {
-                    logInfo(`New background colour.`);
-                    setTimeout(drawGraph, drawGraphDelay);
-                }, 400);
-            }
-        });
-        const config = { attributes: true };
-        observer.observe(wrapperOuter, config);
+        if (wrapperOuter) {
+            let currentBackgroundColor = getBackgroundColor(wrapperOuter);
+            const observer = new MutationObserver(() => {
+                const newColor = getBackgroundColor(wrapperOuter);
+                if (newColor !== currentBackgroundColor) {
+                    setTimeout(() => {
+                        logInfo(`Detected new background colour.`);
+                        setTimeout(drawGraph, drawGraphDelay);
+                    }, 400);
+                }
+            });
+            const config = { attributes: true };
+            observer.observe(wrapperOuter, config);
+        } else {
+            logWarn('Wrapper element not found!'); // Likely an unrecognised FM-DX Webserver version
+        }
     }, 1000);
 });
 
@@ -2034,7 +3252,80 @@ clickCanvas.addEventListener('click', function(event) {
     }
 });
 
-// Draw graph
+/* ==================================================
+                    USER GRID LINES
+   ================================================== */
+
+// Store highlighted vertical grid lines by frequency for right-click
+canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (xScaleForMarkers === null) return;
+
+    localStorageItem.highlightedFreqs = `enableSpectrumGraphHighlightedFreqs${currentAntenna}`;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+
+    if (mouseX < xOffset) return;
+
+    let closestKey = null;
+    let closestDist = Infinity;
+
+    // Find nearest existing marker
+    markedFreqs.forEach(freqStr => {
+        const freq = Number(freqStr);
+        const x = xOffset + (freq - minFreqForMarkers) * xScaleForMarkers;
+
+        const dist = Math.abs(x - mouseX);
+        if (dist < closestDist) {
+            closestDist = dist;
+            closestKey = freqStr;
+        }
+    });
+
+    // Remove if close enough
+    if (closestDist <= MARKER_TOLERANCE_PX) {
+        lastRemovedFreq = closestKey;
+        markedFreqs.delete(closestKey);
+    } else {
+        const freq =
+            minFreqForMarkers + (mouseX - xOffset) / xScaleForMarkers;
+
+        markedFreqs.add(freq.toFixed(2));
+    }
+
+    setTimeout(drawGraph, drawGraphDelay);
+
+    try {
+        localStorage.setItem(localStorageItem.highlightedFreqs, JSON.stringify([...markedFreqs]));
+    } catch (err) {
+        logError("Failed to save highlighted markers:", err);
+    }
+});
+
+// Display highlighted vertical grid lines by frequency for right-click
+function displayHighlightedFreqs() {
+    // Clear all previous markers
+    markedFreqs.clear();
+
+    localStorageItem.highlightedFreqs = `enableSpectrumGraphHighlightedFreqs${currentAntenna}`;
+
+    const saved = localStorage.getItem(localStorageItem.highlightedFreqs);
+    if (saved) {
+        try {
+            const arr = JSON.parse(saved);
+            if (Array.isArray(arr)) {
+                arr.forEach(f => markedFreqs.add(f));
+            }
+        } catch (err) {
+            logWarn("Failed to load highlighted markers:", err);
+        }
+    }
+}
+
+/* ==================================================
+                    DRAW GRAPH
+   ================================================== */
 function drawGraph() {
     const ctx = canvas.getContext('2d', { willReadFrequently: false });
     const width = canvas.width;
@@ -2042,6 +3333,26 @@ function drawGraph() {
 
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
+
+    // Truncate sigArray if any data is invalid
+    let prevFreq = -Infinity;
+    let truncatedDueToError = false;
+
+    const stopIndex = sigArray.findIndex(point => {
+        const freq = Number(point.freq);
+        const sig = Number(point.sig);
+        if (!Number.isFinite(freq) || !Number.isFinite(sig) || freq < prevFreq) {
+            truncatedDueToError = true;
+            return true;
+        }
+        prevFreq = freq;
+        return false;
+    });
+
+    // Only truncate if an invalid point was found
+    if (stopIndex !== -1) {
+        sigArray = sigArray.slice(0, stopIndex);
+    }
 
     // Check if sigArray has data
     if (!sigArray || sigArray.length === 0) {
@@ -2161,6 +3472,10 @@ function drawGraph() {
 
     const colorText = getComputedStyle(document.documentElement).getPropertyValue('--color-5').trim();
     const colorBackground = getComputedStyle(document.documentElement).getPropertyValue('--color-1-transparent').trim();
+
+    // Used for right-click
+    minFreqForMarkers = minFreq;
+    xScaleForMarkers = xScale;
 
     // Draw background
     if (!BORDERLESS_THEME) {
@@ -2306,10 +3621,78 @@ function drawGraph() {
     const gradient = ctx.createLinearGradient(0, height - 20, 0, 0);
 
     // Add colour stops
-    gradient.addColorStop(0, "#0030E0");        // Blue
-    gradient.addColorStop(0.25, "#10C838");     // Green
-    gradient.addColorStop(0.5, "#C0D000");      // Yellow
-    gradient.addColorStop(0.75, "#FF0040");     // Red
+    switch (SPECTRUM_COLOR_STYLE) {
+
+        // Default
+        // Evenly spaced UI gradient
+        // General-purpose spectrum, not RF-accurate
+        case "DEFAULT":
+            gradient.addColorStop(0.0,  "#0030E0"); // Blue
+            gradient.addColorStop(0.25, "#18CC38"); // Green
+            gradient.addColorStop(0.5,  "#C8D800"); // Yellow
+            gradient.addColorStop(0.75, "#FF1000"); // Red
+            break;
+
+        // Accurate4
+        // Perceptually closer to visible-spectrum spacing using 4 colours
+        // Red reserved for peak values only
+        case "ACCURATE_4":
+            gradient.addColorStop(0.0,  "#0030E0"); // Blue
+            gradient.addColorStop(0.38, "#11C838"); // Green
+            gradient.addColorStop(0.62, "#C0D000"); // Yellow
+            gradient.addColorStop(0.95, "#FF0400"); // Red
+            gradient.addColorStop(1.0,  "#FF0400"); // Red
+            break;
+
+        // Accurate7
+        // Full visible-light style spectrum
+        // Best for demonstration displays
+        case "ACCURATE_7":
+            gradient.addColorStop(0.0,  "#2A00FF"); // Violet
+            gradient.addColorStop(0.17, "#005BFF"); // Blue
+            gradient.addColorStop(0.33, "#00FFEA"); // Cyan
+            gradient.addColorStop(0.5,  "#00FF00"); // Green
+            gradient.addColorStop(0.67, "#FFFF00"); // Yellow
+            gradient.addColorStop(0.83, "#FF7A00"); // Orange
+            gradient.addColorStop(0.95, "#FF0000"); // Red
+            gradient.addColorStop(1.0,  "#FF0000"); // Red
+            break;
+
+        // Balanced
+        // Perceptually balanced for RF spectrum reading
+        // Red represents a range, not a single max point
+        case "BALANCED":
+            gradient.addColorStop(0.0,  "#0030E0"); // Blue
+            gradient.addColorStop(0.3,  "#11C838"); // Green
+            gradient.addColorStop(0.55, "#C1D000"); // Yellow
+            gradient.addColorStop(0.85, "#FF0400"); // Red
+            gradient.addColorStop(1.0,  "#FF0400"); // Red
+            break;
+
+        // Warm top
+        // Emphasizes strong signals and dense RF regions
+        // Aggressively highlights strong FM carriers and dense regions
+        case "WARM_TOP":
+            gradient.addColorStop(0.0,  "#0030E0"); // Blue
+            gradient.addColorStop(0.2,  "#10C838"); // Green
+            gradient.addColorStop(0.45, "#C0D000"); // Yellow
+            gradient.addColorStop(0.6,  "#FF0310"); // Red
+            gradient.addColorStop(1.0,  "#FF0310"); // Red
+            break;
+
+        // Smooth
+        // Same colours as Default, but with softened transitions
+        // Red occupies a range for RF realism
+        case "SMOOTH":
+            gradient.addColorStop(0.0,  "#0030E0"); // Blue
+            gradient.addColorStop(0.32, "#10C838"); // Green
+            gradient.addColorStop(0.45, "#10C838"); // Green
+            gradient.addColorStop(0.6,  "#C0D000"); // Yellow
+            gradient.addColorStop(0.75, "#C0D000"); // Yellow
+            gradient.addColorStop(0.9,  "#FF0400"); // Red
+            gradient.addColorStop(1.0,  "#FF0400"); // Red
+            break;
+    }
 
     // Set fill style and draw a rectangle
     ctx.fillStyle = gradient;
@@ -2379,6 +3762,27 @@ function drawGraph() {
             ctx.stroke();
         }
     }
+
+    // Draw user-defined highlighted vertical grid lines when using right-click
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(224, 224, 224, 0.5)';
+
+    markedFreqs.forEach(freqStr => {
+        const freq = Number(freqStr);
+
+        // Skip frequencies outside the visible range
+        if (freq < minFreq || freq > maxFreq) return;
+
+        const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
+
+        ctx.beginPath();
+        ctx.moveTo(x, 9.5);
+        ctx.lineTo(x, height - 20);
+        ctx.stroke();
+    });
+
+    ctx.setLineDash([1, 2]); // Revert back to dotted lines
 
     // Scanner plugin code by Highpoint2000
     if (ScannerIsScanning) {
@@ -2514,6 +3918,9 @@ function drawGraph() {
         for (let i = 0; i < savedOutline.length; i++) {
             const point = savedOutline[i];
 
+            // Skip points outside the visible frequency range
+            if (point.freq < minFreq || point.freq > maxFreq) continue;
+
             const x = Math.round(xOffset + (point.freq - minFreq) * xScale);
             let y = Math.round(canvas.height - (point.sig - minSig) * yScale);
 
@@ -2547,19 +3954,38 @@ function drawGraph() {
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('mousedown', e => (e.button === 1) && e.preventDefault());
 
-    if (!graphError && !isScanComplete) {
-        isScanComplete = true;
-        isScanCompleteFirstWarn = true;
-        insertUpdateText(`[${pluginName}] Spectrum scan appears incomplete. Perform a manual rescan if needed.`);
+    if (!isUpdating) {
+        if (!graphError && isLastUpdateOutdated) {
+            isLastUpdateOutdated = false;
+            const msg = createdOutdatedNotice();
+            insertUpdateText(msg, 8, undefined, undefined, undefined, !ScannerIsScanning);
+        }
+
+        if (!graphError && truncatedDueToError) {
+            truncatedDueToError = false;
+            insertUpdateText(getTranslatedText('spectrumScanInvalid'));
+        }
+
+        if (!graphError && !isScanComplete) {
+            insertUpdateText(getTranslatedText('spectrumScanIncomplete'));
+        }
+
+        if (graphError) {
+            graphError = false;
+            dataError = false;
+            insertUpdateText(getTranslatedText('errorDuringInitialisation'));
+        } else if (!graphError && dataError) {
+            dataError = false;
+            graphError = false;
+            if (sigArray?.length < 8) insertUpdateText(getTranslatedText('noSignal'));
+        }
     }
 
-    if (graphError) {
-        graphError = false;
-        insertUpdateText(`[${pluginName}] Error during graph initialisation. The server may need to be restarted.`);
-    }
+    isScanComplete = true;
 
     return updateBounds(xScale, minFreq, freqRange, yScale);
 }
+
 const updateBounds = initializeCanvasInteractions();
 
 })();
