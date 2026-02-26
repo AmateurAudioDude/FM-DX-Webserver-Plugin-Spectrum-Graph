@@ -513,7 +513,7 @@ const LOCK_LOG_INTERVAL = 30000;
 
 // Handler for plugins WebSocket connections
 function handlePluginConnection(ws, req) {
-    if (req.url !== '/data_plugins') {
+    if (req?.url !== '/data_plugins') {
         return;
     }
 
@@ -535,7 +535,7 @@ function handlePluginConnection(ws, req) {
                 ipTimeout = setTimeout(() => { ipAddress = externalWsUrl; }, 5000);
             }
 
-            const session = req.session || {};
+            const session = req?.session || {};
             const isAdmin = session.isAdminAuthenticated || session.isTuneAuthenticated;
             const isLocked = !serverConfig.publicTuner || serverConfig.lockToAdmin;
 
