@@ -3795,10 +3795,10 @@ function drawGraph() {
             ctx.fillStyle = 'rgba(232, 64, 4, 1.0)';
             ctx.font = '12px Arial, Titillium Web, Helvetica';
             ctx.textAlign = 'left';
-            ctx.filter = 'drop-shadow(0.25px 0.25px 0px rgba(0, 0, 0, 0.5))';
+            ctx.filter = 'drop-shadow(0.25px 0.25px 0px rgba(0, 0, 0, 0.8))';
             let ScannerSpectrumLimiterValueOffset = 0;
             if (ScannerSpectrumLimiterValue && ScannerSensitivity && ScannerSpectrumLimiterValue - ScannerSensitivity > 5 && ScannerSpectrumLimiterValue - ScannerSensitivity < 20) ScannerSpectrumLimiterValueOffset = 50;
-            ctx.fillText(`${Math.round(Number(ScannerSpectrumLimiterValue.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + (5 + ScannerSpectrumLimiterValueOffset), yPositionLimiterValue + 15);
+            ctx.fillText(`${Math.round(Number(ScannerSpectrumLimiterValue.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + (5 + ScannerSpectrumLimiterValueOffset), Math.max(yPositionLimiterValue + 15, 11));
             ctx.filter = 'none';
         }
 
@@ -3821,7 +3821,7 @@ function drawGraph() {
             ctx.fillStyle = 'rgba(60, 104, 248, 1.0)';
             ctx.font = '12px Arial, Titillium Web, Helvetica';
             ctx.textAlign = 'left';
-            ctx.filter = 'drop-shadow(0.25px 0.25px 0px rgba(0, 0, 0, 0.5))';
+            ctx.filter = 'drop-shadow(0.25px 0.25px 0px rgba(0, 0, 0, 0.8))';
             ctx.fillText(`${Math.round(Number(ScannerSensitivity.toFixed(1)) - sigOffset)} ${sigDesc}`, xOffset + 5, yPositionScannerSensitivityValue - 5);
             ctx.filter = 'none';
         }
