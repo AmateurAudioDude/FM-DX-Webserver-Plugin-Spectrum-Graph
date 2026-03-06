@@ -3521,14 +3521,16 @@ function drawGraph() {
             // dBm spacing
             let tempDbmSig = ((sig - sigOffset) + minSig).toFixed(0);
             // dBm
-            if (sig && tempDbmSig > -100) ctx.fillText(tempDbmSig, ((xOffset - xSigOffset) + 8), y + 3);
+            if (sig && tempDbmSig > -100 && tempDbmSig < 0) ctx.fillText(tempDbmSig, ((xOffset - xSigOffset) + 7.5), y + 3);
+            if (sig && tempDbmSig >= 0) ctx.fillText(tempDbmSig, ((xOffset - xSigOffset) + 12.5), y + 3);
             if (sig && tempDbmSig <= -100) ctx.fillText(tempDbmSig, ((xOffset - xSigOffset)) + 1.5, y + 3);
         } else if (signalText === 'dbuv') {
             // dBuV number spacing
             let tempDbuvSig = (((sig - sigOffset) + 1) + minSig).toFixed(0);
             if (tempDbuvSig == -0) tempDbuvSig = 0;
             // dBuV using +1 for even numbering
-            if (sig && tempDbuvSig >= 10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset), y + 3);
+            if (sig && tempDbuvSig >= 10 && tempDbuvSig < 100) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset), y + 3);
+            if (sig && tempDbuvSig >= 100) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) - 6.5, y + 3);
             if (sig && tempDbuvSig > 0 && tempDbuvSig < 10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 6.5, y + 3);
             if (sig && tempDbuvSig == 0) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 6.5, y + 3);
             if (sig && tempDbuvSig < 0 && tempDbuvSig > -10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 1.5, y + 3);
@@ -3537,10 +3539,12 @@ function drawGraph() {
             let tempDbfSig = ((sig - sigOffset) + minSig).toFixed(0);
             // dBf
             if (tempDbfSig == -0) tempDbfSig = 0;
-            if (sig && tempDbfSig >= 10) ctx.fillText(tempDbfSig, (xOffset - xSigOffset), y + 3);
+            if (sig && tempDbfSig >= 10 && tempDbfSig < 100) ctx.fillText(tempDbfSig, (xOffset - xSigOffset), y + 3);
+            if (sig && tempDbfSig >= 100) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) - 6.5, y + 3);
             if (sig && tempDbfSig > 0 && tempDbfSig < 10) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) + 6.5, y + 3);
             if (sig && tempDbfSig == 0) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) + 5.5, y + 3);
-            if (sig && tempDbfSig < 0) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) + 1.5, y + 3);
+            if (sig && tempDbfSig < 0 && tempDbfSig > -10) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) + 1.5, y + 3);
+            if (sig && tempDbfSig <= - 10) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) - 5.5, y + 3);
         }
         labels.push(sig); // Store labeled values
     }
@@ -3568,7 +3572,8 @@ function drawGraph() {
             if (drawLabelMin >= 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset), yScaleFixed + 3);
             if (drawLabelMin > 0 && drawLabelMin < 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 6.5, yScaleFixed + 3);
             if (drawLabelMin == 0) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 5.5, yScaleFixed + 3);
-            if (drawLabelMin < 0) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 1.5, yScaleFixed + 3);
+            if (drawLabelMin < 0 && drawLabelMin > -10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 1.5, yScaleFixed + 3);
+            if (drawLabelMin <= - 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) - 5.5, yScaleFixed + 3);
         }
     }
 
