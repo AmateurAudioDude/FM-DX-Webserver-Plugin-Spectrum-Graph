@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.3.0 by AAD
+    Spectrum Graph v1.3.0a by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -722,12 +722,12 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
             // If found via command sent
             const freqStr = receivedLine.substring(1);
             currentFrequency = parseInt(freqStr, 10) / 1000;
-            //logInfo(`${pluginName}: Frequency updated: ${currentFrequency}`); // Debug
+            if (debug) logInfo(`[${pluginName}] Frequency updated: ${currentFrequency}`); // Debug
         } else if (datahandlerReceived.dataToSend?.freq) {
             // If found via dataToSend (datahandler.js)
             const freqStr = datahandlerReceived.dataToSend.freq.replace(/^0+/, '');
             currentFrequency = Number(freqStr);
-            //logInfo(`${pluginName}: Frequency updated from dataToSend: ${currentFrequency}`); // Debug
+            //logInfo(`[${pluginName}] Frequency updated from dataToSend: ${currentFrequency}`); // Debug
         }
 
         if (receivedLine.startsWith('U')) {
@@ -842,7 +842,7 @@ if (config.antennas) antennaResponse = config.antennas;
 
 if (antennaResponse.enabled) { // Continue if 'enabled' is true
     antennaSwitch = true;
-    antennaCurrent = 0; // Default antenna
+    antennaCurrent = Number(config.antennaStartup) || 0; // Default antenna from config
     const antennas = ['ant1', 'ant2', 'ant3', 'ant4'];
 
     let antennaStatus = {};
@@ -858,6 +858,25 @@ if (antennaResponse.enabled) { // Continue if 'enabled' is true
             const newData = { [`sd${i - 1}`]: null };
             updateSpectrumData(newData);
         }
+    });
+}
+
+function waitForAntenna(expectedAntenna, timeout = 5000, interval = 20) {
+    return new Promise((resolve, reject) => {
+        const start = Date.now();
+
+        const timer = setInterval(() => {
+            if (String(interceptedZData) === String(expectedAntenna)) {
+                clearInterval(timer);
+                resolve(true);
+                return;
+            }
+
+            if (Date.now() - start >= timeout) {
+                clearInterval(timer);
+                reject(new Error(`Timeout waiting for Ant. ${expectedAntenna}, last seen Z=${interceptedZData ?? 'none'}`));
+            }
+        }, interval);
     });
 }
 
@@ -936,7 +955,7 @@ function startPluginStartup() {
             .catch(error => logError(error));
     }
 
-    function firstRun() {
+    async function firstRun() {
         if (connectionStatusKnown) {
             const connectionMsg = `${deviceName}${!useHooks ? ' and WebSocket' : ''} connected`;
             logInfo(`[${pluginName}] ${connectionMsg}${!restartCounter ? ', preparing first run...' : `... (${restartCounter} ${restartCounter === 1 ? 'restart' : 'restarts'})`}`);
@@ -945,46 +964,66 @@ function startPluginStartup() {
         } else {
             logInfo(`[${pluginName}] ${deviceName} connection status unknown,${!useHooks ? ' WebSocket connected,' : ''} preparing first run...`);
         }
-        setTimeout(() => restartScan('scan'), initialDelay); // First run
 
-        // Scan additional antennas
+        await new Promise(resolve => setTimeout(resolve, initialDelay));
+
+        // Remember startup antenna to restore after scanning
+        const startupAntenna = antennaCurrent ?? 0;
+
+        // Confirm startup antenna before first scan
+        if (antennaSwitch) {
+            try {
+                interceptedZData = null;
+                await sendCommandToClient(`Z${startupAntenna}`);
+                if (debug) logInfo(`[${pluginName}] Waiting for Ant. ${startupAntenna} confirmation...`);
+                await waitForAntenna(startupAntenna, 5000);
+                logInfo(`[${pluginName}] Ant. ${startupAntenna} found, starting first scan.`);
+            } catch (error) {
+                logWarn(`[${pluginName}] Ant. ${startupAntenna} confirmation failed before first scan: ${error.message}`);
+            }
+        }
+
+        // First scan
+        await startScan('scan');
+
+        // Scan additional antennas sequentially
         if (antennaResponse.enabled) {
-            // Determine scaling factor based on tuningStepSize
-            const scalingFactor = (96 / tuningStepSize) + (1 - ((fmLowerLimit || 88) / 88));
-
             const antennas = [
-                { enabled: antennaResponse.ant2.enabled, command: 'Z1' },
-                { enabled: antennaResponse.ant3.enabled, command: 'Z2' },
-                { enabled: antennaResponse.ant4.enabled, command: 'Z3' }
+                { enabled: antennaResponse.ant1.enabled, command: 'Z0', number: 0 },
+                { enabled: antennaResponse.ant2.enabled, command: 'Z1', number: 1 },
+                { enabled: antennaResponse.ant3.enabled, command: 'Z2', number: 2 },
+                { enabled: antennaResponse.ant4.enabled, command: 'Z3', number: 3 }
             ];
 
-            // Filter out enabled antennas
-            const enabledAntennas = antennas.filter(antenna => antenna.enabled);
+            for (const antenna of antennas) {
+                // Skip disabled antennas and startup antenna
+                if (!antenna.enabled || antenna.number === startupAntenna) continue;
 
-            enabledAntennas.forEach((antenna, i) => {
-                const timeOffset = initialDelay + (3000 * scalingFactor) + (3600 * i * scalingFactor);
+                try {
+                    // Delay before switching antenna
+                    await new Promise(resolve => setTimeout(resolve, 400));
 
-                // Send command to client
-                setTimeout(() => sendCommandToClient(antenna.command), timeOffset);
+                    interceptedZData = null;
+                    await sendCommandToClient(antenna.command);
+                    if (debug) logInfo(`[${pluginName}] Waiting for Ant. ${startupAntenna} confirmation...`);
+                    await waitForAntenna(antenna.number, 5000);
+                    logInfo(`[${pluginName}] Ant. ${antenna.number} found, starting scan.`);
 
-                // Scan
-                setTimeout(() => restartScan('scan'), timeOffset + 600);
-            });
+                    // Delay as a precaution for UI and hardware switching
+                    await new Promise(resolve => setTimeout(resolve, 600));
 
-            // End of first run (antenna switch enabled)
-            const finalTimeOffset = initialDelay + (3000 * scalingFactor) + (3600 * enabledAntennas.length * scalingFactor);
-            firstRunComplete(finalTimeOffset);
-        } else {
-            // End of first run (antenna switch disabled)
-            firstRunComplete(initialDelay + (3000 * (100 / tuningStepSize)));
+                    await startScan('scan');
+                } catch (error) {
+                    logWarn(`[${pluginName}] Ant. ${antenna.number} scan failed: ${error.message}`);
+                }
+            }
+
+            // Return to startup antenna
+            await new Promise(resolve => setTimeout(resolve, 600));
+            await sendCommandToClient(`Z${startupAntenna}`);
         }
-    }
-}
 
-function firstRunComplete(finalTime) {
-    setTimeout(() => {
-        if (antennaSwitch) sendCommandToClient('Z0');
-
+        // First run complete
         if (isFirstRun && !isFirstFirmwareNotice) {
             isFirstFirmwareNotice = true;
             logInfo(`[${pluginName}] Firmware detected as ${firmwareType}.`);
@@ -992,7 +1031,7 @@ function firstRunComplete(finalTime) {
 
         isFirstRun = false;
         logInfo(`[${pluginName}] Scan button unlocked${!restartCounter ? ', first run complete' : ''}.`);
-    }, finalTime);
+    }
 }
 
 async function sendCommandToClient(command) {
@@ -1012,7 +1051,7 @@ async function sendCommandToClient(command) {
 }
 
 // Begin scan
-function startScan(command) {
+async function startScan(command) {
     if (debug) console.log(command);
 
     if (command === 'scan') {
@@ -1175,8 +1214,7 @@ function startScan(command) {
             lastScanCommand = 'scan'; 
 
             // optionally restart normal scan automatically
-            startScan('scan');
-            return;
+            return startScan('scan');
         }
 
         // proceed with valid custom range
@@ -1275,81 +1313,79 @@ function startScan(command) {
         }
     }
 
-    (async () => {
-        try {
-            const scanStartTime = process.hrtime();
-            let uValue = await waitForUValue();
+    try {
+        const scanStartTime = process.hrtime();
+        let uValue = await waitForUValue();
 
-            // Possibly interrupted, but should never execute, as trailing commas should have already been removed
-            if (uValue && uValue.endsWith(',')) {
-                isScanHalted(true);
-                uValue = null;
-                setTimeout(() => {
-                    // Update endpoint
-                    const newData = { sd: uValue }; // uValue or null
-                    updateSpectrumData(newData);
-                    logWarn(`[${pluginName}] Spectrum scan appears incomplete.`);
-                    scanStatus = { scanStatus: "incomplete" };
-                    updateSpectrumData(scanStatus);
-                }, 200);
-            }
-            if (debug) console.log(uValue);
-
-            scanStatus = { scanStatus: "normal" };
-            updateSpectrumData(scanStatus);
-
-            const completeTimeInNanoseconds = process.hrtime(scanStartTime); 
-            const completeTime = (completeTimeInNanoseconds[0] + completeTimeInNanoseconds[1] / 1e9).toFixed(1); // Convert to seconds
-
-            if (logLocalCommands || 
-                (!logLocalCommands && ipAddress !== '127.0.0.1' && !ipAddress.includes('ws://')) || 
-                isFirstRun
-            ) {
-                // Determine lower/upper frequencies
-                let logLower = tuningLowerLimitScan;
-                let logUpper = tuningUpperLimitScan;
-
-                // Override with the range values of custom range scan
-                if (command.startsWith('scan-') && command !== 'scan-0') {
-                    const idx = Number(command.split('-')[1]) - 1;
-                    if (formattedCustomRanges[idx]) {
-                        logLower = formattedCustomRanges[idx].low * 1000;
-                        logUpper = formattedCustomRanges[idx].high * 1000;
-                    }
-                } else if (command === 'scan-0') {
-                    // Default FM scan
-                    logLower = tuningLowerLimitScan;
-                    logUpper = tuningUpperLimitScan;
-                }
-
-                logInfo(`[${pluginName}] Spectrum ${command} command (${logLower / 1000}-${logUpper / 1000} MHz) ${antennaResponse.enabled ? `for Ant. ${antennaCurrent} ` : ''}complete in ${completeTime} seconds.`);
-            }
-
-            if (!isFirstRun) lastRestartTime = Date.now();
-
-            // Split response into pairs and process each one
-            sigArray = uValue.split(',').map(pair => {
-                const [freq, sig] = pair.split('=');
-                return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
-            });
-
-            // if (debug) console.log(sigArray);
-
-            const messageClient = JSON.stringify({
-                type: 'sigArray',
-                value: sigArray,
-                isScanning: isScanRunning
-            });
-
-            sendSigArray(sigArray, { pluginBroadcast: true }); // Send data
-
-        } catch (error) {
-            scanStatus = { scanStatus: "timeout" };
-            updateSpectrumData(scanStatus);
-            logError(`${pluginName} scan incomplete, invalid response from device ${deviceName} (invalid 'U' value), error:`, error.message);
+        // Possibly interrupted, but should never execute, as trailing commas should have already been removed
+        if (uValue && uValue.endsWith(',')) {
+            isScanHalted(true);
+            uValue = null;
+            setTimeout(() => {
+                // Update endpoint
+                const newData = { sd: uValue }; // uValue or null
+                updateSpectrumData(newData);
+                logWarn(`[${pluginName}] Spectrum scan appears incomplete.`);
+                scanStatus = { scanStatus: "incomplete" };
+                updateSpectrumData(scanStatus);
+            }, 200);
         }
-        isScanHalted(true);
-    })();
+        if (debug) console.log(uValue);
+
+        scanStatus = { scanStatus: "normal" };
+        updateSpectrumData(scanStatus);
+
+        const completeTimeInNanoseconds = process.hrtime(scanStartTime);
+        const completeTime = (completeTimeInNanoseconds[0] + completeTimeInNanoseconds[1] / 1e9).toFixed(1); // Convert to seconds
+
+        if (logLocalCommands ||
+            (!logLocalCommands && ipAddress !== '127.0.0.1' && !ipAddress.includes('ws://')) ||
+            isFirstRun
+        ) {
+            // Determine lower/upper frequencies
+            let logLower = tuningLowerLimitScan;
+            let logUpper = tuningUpperLimitScan;
+
+            // Override with the range values of custom range scan
+            if (command.startsWith('scan-') && command !== 'scan-0') {
+                const idx = Number(command.split('-')[1]) - 1;
+                if (formattedCustomRanges[idx]) {
+                    logLower = formattedCustomRanges[idx].low * 1000;
+                    logUpper = formattedCustomRanges[idx].high * 1000;
+                }
+            } else if (command === 'scan-0') {
+                // Default FM scan
+                logLower = tuningLowerLimitScan;
+                logUpper = tuningUpperLimitScan;
+            }
+
+            logInfo(`[${pluginName}] Spectrum ${command} (${logLower / 1000}-${logUpper / 1000} MHz) ${antennaResponse.enabled ? `for Ant. ${antennaCurrent} ` : ''}complete in ${completeTime} seconds.`);
+        }
+
+        if (!isFirstRun) lastRestartTime = Date.now();
+
+        // Split response into pairs and process each one
+        sigArray = uValue.split(',').map(pair => {
+            const [freq, sig] = pair.split('=');
+            return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
+        });
+
+        // if (debug) console.log(sigArray);
+
+        const messageClient = JSON.stringify({
+            type: 'sigArray',
+            value: sigArray,
+            isScanning: isScanRunning
+        });
+
+        sendSigArray(sigArray, { pluginBroadcast: true }); // Send data
+
+    } catch (error) {
+        scanStatus = { scanStatus: "timeout" };
+        updateSpectrumData(scanStatus);
+        logError(`${pluginName} scan incomplete, invalid response from device ${deviceName} (invalid 'U' value), error:`, error.message);
+    }
+    isScanHalted(true);
 }
 
 function sendSigArray(sigArray, options = {}, customMessage) {
