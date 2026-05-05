@@ -1,11 +1,13 @@
 /*
-    Spectrum Graph v1.3.0a by AAD
+    Spectrum Graph v1.4.0beta by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
 */
 
 'use strict';
+
+const pluginVersion = '1.4.0';
 
 const AUTO_RESTART_ON_CONNECTION_ERROR = true;
 const FORCE_FALLBACK = false;
@@ -136,7 +138,7 @@ let isScanRunning = false;
 let hasLoggedUndefined = false;
 let scanStatus = { scanStatus: "normal" };
 let formattedCustomRanges = [];
-let lastScanCommand = 'scan-0';
+let lastScanCommand = null;
 let connectionStatusKnown = false;
 let isDeviceCompatible = false;
 let sigArray = [];
@@ -180,7 +182,374 @@ let spectrumData = {
     sd: null
 };
 
+const checkStrictAdmin = (req, res, next) => {
+    if (req.session && req.session.isAdminAuthenticated) return next();
+    return res.status(401).send('Unauthorised.');
+};
+
 function customRouter() {
+    endpointsRouter.get('/spectrum-graph-plugin/api/config', (req, res) => {
+        res.json({
+            isAdmin: (req.session && req.session.isAdminAuthenticated) || false,
+            config: {
+                rescanDelay,
+                tuningRange,
+                tuningStepSize,
+                tuningBandwidth,
+                fmLowerLimit,
+                customRanges,
+                warnIncompleteData,
+                logLocalCommands,
+                clearGraphOnScan,
+                definedBands,
+            }
+        });
+    });
+
+    endpointsRouter.post('/spectrum-graph-plugin/api/config', checkStrictAdmin, express.json(), (req, res) => {
+        try {
+            const body = req.body;
+            const updated = {
+                rescanDelay:        !isNaN(Number(body.rescanDelay))        ? Number(body.rescanDelay)        : rescanDelay,
+                tuningRange:        !isNaN(Number(body.tuningRange))        ? Number(body.tuningRange)        : tuningRange,
+                tuningStepSize:     !isNaN(Number(body.tuningStepSize))     ? Number(body.tuningStepSize)     : tuningStepSize,
+                tuningBandwidth:    !isNaN(Number(body.tuningBandwidth))    ? Number(body.tuningBandwidth)    : tuningBandwidth,
+                fmLowerLimit:       !isNaN(Number(body.fmLowerLimit))       ? Number(body.fmLowerLimit)       : fmLowerLimit,
+                customRanges:       typeof body.customRanges === 'string'   ? body.customRanges               : customRanges,
+                warnIncompleteData: typeof body.warnIncompleteData === 'boolean' ? body.warnIncompleteData    : warnIncompleteData,
+                logLocalCommands:   typeof body.logLocalCommands === 'boolean'   ? body.logLocalCommands      : logLocalCommands,
+                clearGraphOnScan:   typeof body.clearGraphOnScan === 'boolean'   ? body.clearGraphOnScan      : clearGraphOnScan,
+                definedBands:       Array.isArray(body.definedBands) && body.definedBands.length > 0 &&
+                                    body.definedBands.every(b => b && typeof b.name === 'string' &&
+                                        Number.isFinite(b.start) && Number.isFinite(b.end) &&
+                                        Number.isFinite(b.step) && Number.isFinite(b.bw))
+                                        ? body.definedBands : definedBands,
+            };
+            suppressNextFileWatchReload = true;
+            saveUpdatedConfig(updated);
+            loadConfigFile('re');
+            res.json({ success: true });
+        } catch (err) {
+            logError(`[${pluginName}] Error saving config via API: ${err.message}`);
+            res.status(500).json({ success: false });
+        }
+    });
+
+    endpointsRouter.get('/spectrum-graph-plugin/settings', checkStrictAdmin, (req, res) => {
+        const cfg = {
+            rescanDelay, tuningRange, tuningStepSize, tuningBandwidth,
+            fmLowerLimit, customRanges, warnIncompleteData, logLocalCommands, clearGraphOnScan, definedBands,
+        };
+
+        const bwOptions = [
+            { val: 56, label: '56 kHz (FM narrow)' },
+            { val: 64, label: '64 kHz' },
+            { val: 72, label: '72 kHz' },
+            { val: 84, label: '84 kHz' },
+            { val: 97, label: '97 kHz' },
+            { val: 114, label: '114 kHz' },
+            { val: 133, label: '133 kHz' },
+            { val: 151, label: '151 kHz' },
+            { val: 168, label: '168 kHz' },
+            { val: 184, label: '184 kHz' },
+            { val: 200, label: '200 kHz' },
+            { val: 217, label: '217 kHz' },
+            { val: 236, label: '236 kHz' },
+            { val: 254, label: '254 kHz' },
+            { val: 287, label: '287 kHz' },
+            { val: 311, label: '311 kHz (FM wide)' },
+            { val: 3,  label: 'AM 3 kHz (narrow)' },
+            { val: 4,  label: 'AM 4 kHz' },
+            { val: 6,  label: 'AM 6 kHz' },
+            { val: 8,  label: 'AM 8 kHz (wide)' },
+        ];
+
+        const bwOptionsHtml = bwOptions.map(o => `<option value="${o.val}">${o.label}</option>`).join('');
+
+        const bandsJson = JSON.stringify(cfg.definedBands);
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectrum Graph - Settings</title>
+    <link rel="icon" href="data:,">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f0f0f;
+            --surface: #181818;
+            --surface2: #202020;
+            --border: #2a2a2a;
+            --border-hover: #444;
+            --text: #e8e8e8;
+            --muted: #666;
+            --accent: #2ec4b6;
+            --accent-dim: rgba(46,196,182,0.12);
+            --accent-hover: #25a99e;
+            --danger: #c0392b;
+            --danger-dim: rgba(192,57,43,0.12);
+            --success: #1e8c6e;
+        }
+        body { font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+        header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; display: flex; align-items: center; justify-content: space-between; height: 56px; flex-shrink: 0; }
+        .header-title { font-size: 15px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); display: flex; align-items: center; gap: 10px; }
+        .header-title svg { opacity: 0.85; }
+        .btn-save { background: var(--accent); color: #0f0f0f; border: none; padding: 8px 22px; border-radius: 4px; font-size: 13px; font-weight: 700; cursor: pointer; letter-spacing: 0.03em; transition: background 0.15s; }
+        .btn-save:hover { background: var(--accent-hover); }
+        .btn-save:disabled { opacity: 0.5; cursor: default; }
+        .btn-reset { background: none; color: var(--muted); border: 1px solid var(--border); padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; letter-spacing: 0.03em; transition: color 0.15s, border-color 0.15s; }
+        .btn-reset:hover { color: var(--danger); border-color: var(--danger); }
+        nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; display: flex; gap: 0; flex-shrink: 0; }
+        .tab-btn { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 12px 18px; font-size: 13px; cursor: pointer; transition: color 0.15s, border-color 0.15s; letter-spacing: 0.02em; }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+        main { flex: 1; padding: 28px 32px; overflow-y: auto; }
+        .tab-content { display: none; max-width: 780px; }
+        .tab-content.active { display: block; }
+        .section-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+        .field-group { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 24px; }
+        .field-row { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--border); gap: 16px; }
+        .field-row:last-child { border-bottom: none; }
+        .field-row:hover { background: var(--surface2); }
+        .field-label { font-size: 13px; font-weight: 500; }
+        .field-hint { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+        .field-control { flex-shrink: 0; }
+        input[type=number], input[type=text], select {
+            background: var(--bg); border: 1px solid var(--border); color: var(--text);
+            padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none;
+            transition: border-color 0.15s; width: 110px;
+        }
+        input[type=number]:focus, input[type=text]:focus, select:focus { border-color: var(--accent); }
+        select { width: auto; min-width: 110px; }
+        textarea {
+            background: var(--bg); border: 1px solid var(--border); color: var(--text);
+            padding: 8px 10px; border-radius: 4px; font-size: 12px; font-family: monospace;
+            outline: none; transition: border-color 0.15s; width: 100%; resize: vertical; min-height: 72px;
+        }
+        textarea:focus { border-color: var(--accent); }
+        .toggle { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle-track { position: absolute; inset: 0; background: #333; border-radius: 22px; cursor: pointer; transition: background 0.2s; }
+        .toggle-track::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #888; border-radius: 50%; transition: transform 0.2s, background 0.2s; }
+        .toggle input:checked + .toggle-track { background: var(--accent-dim); }
+        .toggle input:checked + .toggle-track::before { transform: translateX(18px); background: var(--accent); }
+        /* Ranges tab */
+        .ranges-hint { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 16px; }
+        .ranges-hint code { color: var(--accent); font-family: monospace; font-size: 11px; }
+        /* Bands table */
+        .bands-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        thead th { background: var(--surface2); color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+        tbody tr { border-bottom: 1px solid var(--border); }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover td { background: var(--surface2); }
+        td { padding: 5px 6px; }
+        .band-input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 7px; border-radius: 3px; font-size: 12px; width: 100%; outline: none; }
+        .band-input:focus { border-color: var(--accent); }
+        .band-input.nm { width: 62px; }
+        .btn-del { background: none; border: 1px solid transparent; color: var(--muted); border-radius: 3px; padding: 3px 8px; cursor: pointer; font-size: 11px; transition: all 0.15s; }
+        .btn-del:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-dim); }
+        .btn-add { background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; padding: 7px 14px; cursor: pointer; font-size: 12px; font-weight: 600; transition: background 0.15s; }
+        .btn-add:hover { background: var(--accent-dim); }
+        /* Toast */
+        #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--success); color: #fff; padding: 10px 20px; border-radius: 4px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 99; }
+        #toast.err { background: var(--danger); }
+        #toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+<header>
+    <div class="header-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Spectrum Graph v${pluginVersion} - Settings
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn-reset" id="resetBtn">Reset to Defaults</button>
+        <button class="btn-save" id="saveBtn">Save Settings</button>
+    </div>
+</header>
+<nav>
+    <button class="tab-btn active" data-target="tab-general">General</button>
+    <button class="tab-btn" data-target="tab-ranges">Custom Ranges</button>
+    <button class="tab-btn" data-target="tab-bands">Band Definitions</button>
+</nav>
+<main>
+    <div id="tab-general" class="tab-content active">
+        <div class="section-label" style="margin-top:4px">Scanning</div>
+        <div class="field-group">
+            <div class="field-row">
+                <div><div class="field-label">Rescan Delay</div><div class="field-hint">Number of seconds elapsed since the previous scan before a new scan can be initiated. Set to 0 to disable.<br>Caution: Lowering the value of Rescan Delay increases the risk of your server being overloaded with scan requests.</div></div>
+                <div class="field-control"><input type="number" id="rescanDelay" value="${cfg.rescanDelay}" min="0" step="1"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Tuning Range</div><div class="field-hint">Scan radius in MHz around current frequency. Set to 0 for full band scan.</div></div>
+                <div class="field-control"><input type="number" id="tuningRange" value="${cfg.tuningRange}" min="0" step="0.1"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">FM Step Size</div><div class="field-hint">Tuning step size, in kHz. Recommended values are either 50 or 100.</div></div>
+                <div class="field-control"><input type="number" id="tuningStepSize" value="${cfg.tuningStepSize}" min="1" step="1"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">FM Bandwidth</div><div class="field-hint">Filter bandwidth for FM scans in kHz.<br>Supported bandwidth values are 56, 64, 72, 84, 97, 114, 133, 151, 168, 184, 200, 217, 236, 254, 287, and 311.</div></div>
+                <div class="field-control"><input type="number" id="tuningBandwidth" value="${cfg.tuningBandwidth}" min="0" step="1"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">FM Lower Limit</div><div class="field-hint">Lower edge of the FM band in MHz to scan. Default value is 86.</div></div>
+                <div class="field-control"><input type="number" id="fmLowerLimit" value="${cfg.fmLowerLimit}" min="64" max="108" step="0.1"></div>
+            </div>
+        </div>
+        <div class="section-label">Diagnostics</div>
+        <div class="field-group">
+            <div class="field-row">
+                <div><div class="field-label">Warn Incomplete Data</div><div class="field-hint">Enable to display console warnings about incomplete/interrupted scans.<br>Note: Some firmware outputs data that always appears to be incomplete.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="warnIncompleteData" ${cfg.warnIncompleteData ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Log Local Commands</div><div class="field-hint">Disable to hide commands shown in console that have been sent locally, such as from another plugin.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="logLocalCommands" ${cfg.logLocalCommands ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Clear Graph Data on Scan</div><div class="field-hint">Clear the spectrum graph data when a new scan begins.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="clearGraphOnScan" ${cfg.clearGraphOnScan ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-ranges" class="tab-content">
+        <div class="ranges-hint" style="margin-top:4px">
+            <strong>Format:</strong> <code>count, Name, lowMHz, highMHz[, stepKHz], ...</code><br>
+            <strong>Example:</strong> <code>2, FM1, 65, 74, 56, FM2, 80, 88, 56</code><br>
+            Configure up to two custom frequency range buttons. The per-range step (kHz) is optional. An FM button is always prepended automatically.
+        </div>
+        <div class="section-label">Ranges String</div>
+        <div class="field-group" style="padding:14px 16px">
+            <textarea id="customRanges" rows="4" spellcheck="false">${cfg.customRanges.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea>
+        </div>
+    </div>
+
+    <div id="tab-bands" class="tab-content">
+        <p style="font-size:12px;color:var(--muted);margin:4px 0 16px">Matched by current frequency for AM/SW scans. All values in kHz. Bands &ge;64&nbsp;MHz use FM demodulator logic.</p>
+        <div class="bands-wrap">
+            <table>
+                <thead><tr><th>Name</th><th>Start (kHz)</th><th>End (kHz)</th><th>Step (kHz)</th><th>BW (kHz)</th><th></th></tr></thead>
+                <tbody id="bandsBody"></tbody>
+            </table>
+        </div>
+        <button class="btn-add" id="addBandBtn">+ Add Band</button>
+    </div>
+</main>
+<div id="toast"></div>
+<script>
+    const bwOptionsHtml = \`${bwOptionsHtml}\`;
+    let bands = ${bandsJson};
+    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, definedBands: defaultConfig.definedBands })};
+
+    function renderBands() {
+        const tbody = document.getElementById('bandsBody');
+        tbody.innerHTML = '';
+        bands.forEach((band, i) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = \`
+                <td><input class="band-input nm" data-i="\${i}" data-field="name" value="\${escHtml(band.name)}"></td>
+                <td><input class="band-input" type="number" data-i="\${i}" data-field="start" value="\${band.start}"></td>
+                <td><input class="band-input" type="number" data-i="\${i}" data-field="end" value="\${band.end}"></td>
+                <td><input class="band-input" type="number" data-i="\${i}" data-field="step" value="\${band.step}"></td>
+                <td><select class="band-input" data-i="\${i}" data-field="bw">\${bwOptionsHtml}</select></td>
+                <td><button class="btn-del" data-i="\${i}">Remove</button></td>
+            \`;
+            tbody.appendChild(tr);
+            tr.querySelector('select[data-field="bw"]').value = band.bw;
+        });
+        tbody.querySelectorAll('input.band-input').forEach(el => {
+            el.addEventListener('input', () => {
+                const i = +el.dataset.i, f = el.dataset.field;
+                bands[i][f] = f === 'name' ? el.value : Number(el.value);
+            });
+        });
+        tbody.querySelectorAll('select.band-input').forEach(el => {
+            el.addEventListener('change', () => { bands[+el.dataset.i].bw = Number(el.value); });
+        });
+        tbody.querySelectorAll('.btn-del').forEach(el => {
+            el.addEventListener('click', () => { bands.splice(+el.dataset.i, 1); renderBands(); });
+        });
+    }
+
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    document.getElementById('addBandBtn').addEventListener('click', () => {
+        bands.push({ name: 'New', start: 0, end: 0, step: 1, bw: 3 });
+        renderBands();
+    });
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.target).classList.add('active');
+        });
+    });
+
+    function showToast(msg, isErr) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = isErr ? 'err show' : 'show';
+        setTimeout(() => { t.className = t.className.replace('show', '').trim(); }, 2800);
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        if (!confirm('Reset all settings to their default values?')) return;
+        document.getElementById('rescanDelay').value      = DEFAULTS.rescanDelay;
+        document.getElementById('tuningRange').value      = DEFAULTS.tuningRange;
+        document.getElementById('tuningStepSize').value   = DEFAULTS.tuningStepSize;
+        document.getElementById('tuningBandwidth').value  = DEFAULTS.tuningBandwidth;
+        document.getElementById('fmLowerLimit').value     = DEFAULTS.fmLowerLimit;
+        document.getElementById('customRanges').value     = DEFAULTS.customRanges;
+        document.getElementById('clearGraphOnScan').checked   = DEFAULTS.clearGraphOnScan;
+        document.getElementById('warnIncompleteData').checked = DEFAULTS.warnIncompleteData;
+        document.getElementById('logLocalCommands').checked   = DEFAULTS.logLocalCommands;
+        bands = DEFAULTS.definedBands.map(b => ({ ...b }));
+        renderBands();
+        showToast('Defaults restored. Click Save Settings to apply.', false);
+    });
+
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('saveBtn');
+        btn.disabled = true;
+        const payload = {
+            rescanDelay:        Number(document.getElementById('rescanDelay').value),
+            tuningRange:        Number(document.getElementById('tuningRange').value),
+            tuningStepSize:     Number(document.getElementById('tuningStepSize').value),
+            tuningBandwidth:    Number(document.getElementById('tuningBandwidth').value),
+            fmLowerLimit:       Number(document.getElementById('fmLowerLimit').value),
+            customRanges:       document.getElementById('customRanges').value,
+            warnIncompleteData: document.getElementById('warnIncompleteData').checked,
+            logLocalCommands:   document.getElementById('logLocalCommands').checked,
+            clearGraphOnScan:   document.getElementById('clearGraphOnScan').checked,
+            definedBands:       bands,
+        };
+        try {
+            const res = await fetch('/spectrum-graph-plugin/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            showToast(res.ok ? 'Settings saved.' : 'Save failed (' + res.status + ').', !res.ok);
+        } catch (e) { showToast('Network error.', true); }
+        btn.disabled = false;
+    });
+
+    renderBands();
+</script>
+</body>
+</html>`;
+        res.send(html);
+    });
+
     endpointsRouter.get('/spectrum-graph-plugin', (req, res) => {
         const pluginHeader = req.get('X-Plugin-Name') || 'NoPlugin';
 
@@ -226,6 +595,29 @@ let fmLowerLimit = 86; // Match dummyFreqStart value (default: 86)
 let customRanges = ""; // Custom ranges
 let warnIncompleteData = false; // Warn about incomplete data
 let logLocalCommands = true; // Log locally sent commands
+let clearGraphOnScan = true; // Clear graph data when a new scan begins
+
+const DEFAULT_DEFINED_BANDS = [
+    { name: 'LW',   start: 144,   end: 351,   step: 1,  bw: 3  },
+    { name: 'MW',   start: 504,   end: 1710,  step: 3,  bw: 3  },
+    { name: '160m', start: 1711,  end: 2000,  step: 1,  bw: 3  },
+    { name: '120m', start: 2300,  end: 2500,  step: 1,  bw: 3  },
+    { name: '90m',  start: 3200,  end: 3400,  step: 1,  bw: 3  },
+    { name: '75m',  start: 3900,  end: 4000,  step: 1,  bw: 3  },
+    { name: '60m',  start: 4750,  end: 5060,  step: 2,  bw: 3  },
+    { name: '49m',  start: 5900,  end: 6200,  step: 2,  bw: 3  },
+    { name: '41m',  start: 7200,  end: 7600,  step: 2,  bw: 3  },
+    { name: '31m',  start: 9400,  end: 9900,  step: 2,  bw: 3  },
+    { name: '25m',  start: 11600, end: 12100, step: 2,  bw: 3  },
+    { name: '22m',  start: 13570, end: 13870, step: 2,  bw: 3  },
+    { name: '19m',  start: 15100, end: 15830, step: 2,  bw: 3  },
+    { name: '16m',  start: 17480, end: 17900, step: 2,  bw: 3  },
+    { name: '15m',  start: 18900, end: 19020, step: 1,  bw: 3  },
+    { name: '13m',  start: 21450, end: 21850, step: 2,  bw: 3  },
+    { name: '11m',  start: 25670, end: 26100, step: 2,  bw: 3  },
+    { name: 'OIRT', start: 65900, end: 74000, step: 30, bw: 56 },
+];
+let definedBands = DEFAULT_DEFINED_BANDS.map(b => ({ ...b }));
 
 const defaultConfig = {
     rescanDelay: 3,
@@ -235,11 +627,13 @@ const defaultConfig = {
     fmLowerLimit: 86,
     customRanges: "",
     warnIncompleteData: false,
-    logLocalCommands: true
+    logLocalCommands: true,
+    clearGraphOnScan: true,
+    definedBands: DEFAULT_DEFINED_BANDS,
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'warnIncompleteData', 'logLocalCommands'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'warnIncompleteData', 'logLocalCommands', 'clearGraphOnScan', 'definedBands'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -285,6 +679,16 @@ function loadConfigFile(isReloaded) {
             customRanges = typeof config.customRanges === 'string' ? config.customRanges : '';
             warnIncompleteData = typeof config.warnIncompleteData === 'boolean' ? config.warnIncompleteData : defaultConfig.warnIncompleteData;
             logLocalCommands = typeof config.logLocalCommands === 'boolean' ? config.logLocalCommands : defaultConfig.logLocalCommands;
+            clearGraphOnScan = typeof config.clearGraphOnScan === 'boolean' ? config.clearGraphOnScan : defaultConfig.clearGraphOnScan;
+
+            if (Array.isArray(config.definedBands) && config.definedBands.length > 0 &&
+                config.definedBands.every(b => b && typeof b.name === 'string' &&
+                    Number.isFinite(b.start) && Number.isFinite(b.end) &&
+                    Number.isFinite(b.step) && Number.isFinite(b.bw))) {
+                definedBands = config.definedBands;
+            } else {
+                definedBands = DEFAULT_DEFINED_BANDS.map(b => ({ ...b }));
+            }
 
             structureCustomRanges();
 
@@ -304,19 +708,7 @@ function loadConfigFile(isReloaded) {
     }
 }
 
-// Function to save default configuration file
-function saveDefaultConfig() {
-    const formattedConfig = JSON.stringify(defaultConfig, null, 4); // Pretty print with 4 spaces
-    if (!fs.existsSync(configFolderPath)) {
-        fs.mkdirSync(configFolderPath, { recursive: true });
-    }
-    fs.writeFileSync(configFilePath, formattedConfig);
-    loadConfigFile(); // Reload variables
-}
-
-// Function to save updated configuration after modification
-function saveUpdatedConfig(config) {
-    // Create a new object with keys in specified order
+function stringifyWithCompactBands(config, indent = 4) {
     const orderedConfig = {};
     configKeyOrder.forEach(key => {
         if (key in config) {
@@ -324,16 +716,55 @@ function saveUpdatedConfig(config) {
         }
     });
 
-    const formattedConfig = JSON.stringify(orderedConfig, null, 4); // Pretty print with 4 spaces
-    fs.writeFileSync(configFilePath, formattedConfig); // Save updated config to file
+    let json = JSON.stringify(orderedConfig, null, indent);
+
+    json = json.replace(/"definedBands":\s*\[([\s\S]*?)\]/, () => {
+        const bands = config.definedBands || [];
+
+        const compactLines = bands.map(band => {
+            // Create formatted compact object with spaces
+            const objStr = JSON.stringify(band, null, 0)
+                .replace(/":/g, '": ')           // space after colon
+                .replace(/,"/g, ', "')           // space after comma
+                .replace(/(\d)"/g, '$1"');       // no space before closing quote after numbers
+
+            return ' '.repeat(indent * 2) + objStr;
+        });
+
+        return `"definedBands": [\n${compactLines.join(',\n')}\n${' '.repeat(indent)}]`;
+    });
+
+    return json;
 }
+
+// Function to save default configuration file
+function saveDefaultConfig() {
+    const formattedConfig = stringifyWithCompactBands(defaultConfig, 4);
+    if (!fs.existsSync(configFolderPath)) {
+        fs.mkdirSync(configFolderPath, { recursive: true });
+    }
+    fs.writeFileSync(configFilePath, formattedConfig);
+    loadConfigFile();
+}
+
+// Function to save updated configuration after modification
+function saveUpdatedConfig(config) {
+    const formattedConfig = stringifyWithCompactBands(config, 4);
+    fs.writeFileSync(configFilePath, formattedConfig);
+}
+
+let suppressNextFileWatchReload = false;
 
 // Function to watch configuration file for changes
 function watchConfigFile() {
     fs.watch(configFilePath, (eventType) => {
         if (eventType === 'change') {
-            clearTimeout(debounceTimer); // Clear any existing debounce timer
+            clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
+                if (suppressNextFileWatchReload) {
+                    suppressNextFileWatchReload = false;
+                    return;
+                }
                 loadConfigFile('re');
             }, 800);
         }
@@ -351,10 +782,8 @@ function structureCustomRanges() {
     });
 
     // Add FM range
-    const fmRangeLowerLimit = ((currentFrequency || 87.5) >= fmLowerLimit) 
-        ? Number(fmLowerLimit) || 86 
-        : Number(config?.webserver?.tuningLowerLimit) || 64;
-    const fmRangeUpperLimit = ((currentFrequency || 87.5) > fmLowerLimit) ? Number(config?.webserver?.tuningUpperLimit) || 108 : Number(fmLowerLimit) || 86;
+    const fmRangeLowerLimit = Number(fmLowerLimit) || 86;
+    const fmRangeUpperLimit = Number(config?.webserver?.tuningUpperLimit) || 108;
     let fmRange = null;
 
     if (!isNaN(fmRangeLowerLimit) && !isNaN(fmRangeUpperLimit)) {
@@ -369,20 +798,27 @@ function structureCustomRanges() {
         const parts = customRanges.split(',').map(p => p.trim());
         const numRanges = Number(parts[0]) || 0;
 
+        let pos = 1;
         for (let i = 0; i < numRanges; i++) {
-            const idx = 1 + i * 3;
-            const name = parts[idx];
-            const low = Number(parts[idx + 1]);
-            const high = Number(parts[idx + 2]);
+            const name = parts[pos];
+            const low = Number(parts[pos + 1]);
+            const high = Number(parts[pos + 2]);
+
+            const maybeStep = parts[pos + 3];
+            const hasStep = maybeStep !== undefined && !isNaN(Number(maybeStep)) && Number(maybeStep) > 0;
+            const step = hasStep ? Number(maybeStep) : null;
 
             if (name && !isNaN(low) && !isNaN(high)) {
                 formattedCustomRanges.push({
                     name,
                     low,
                     high,
+                    step,
                     rangeString: `${low}-${high} MHz`
                 });
             }
+
+            pos += hasStep ? 4 : 3;
         }
     }
 
@@ -393,6 +829,7 @@ function structureCustomRanges() {
     updateSpectrumData({
         fmRangeName: fmRange?.name || '',
         fmRangeFreq: fmRange?.rangeString || '',
+        fmLowerLimit,
         customRangeNames,
         customRangeFreqs
     });
@@ -749,11 +1186,11 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
             if (interceptedUData && /Z.$/.test(interceptedUData)) { // Remove any 'Z' antenna commands
                 interceptedUData = interceptedUData.slice(0, -2);
             }
+            let scanIsComplete = true;
             if (interceptedUData && interceptedUData.endsWith(',')) { // Some firmware might still have a trailing comma
                 interceptedUData = interceptedUData.slice(0, -1);
+                scanIsComplete = false;
                 if (warnIncompleteData) {
-                    const completeData = { isScanComplete: false };
-                    updateSpectrumData(completeData);
                     logWarn(`[${pluginName}] Spectrum scan appears incomplete.`);
                     scanStatus = { scanStatus: "incomplete" };
                     updateSpectrumData(scanStatus);
@@ -765,7 +1202,7 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
 
             // Update endpoint
             const lastUpdate = Math.floor(Date.now() / 1000);
-            const newData = { sd: interceptedUData, lastUpdate: lastUpdate };
+            const newData = { sd: interceptedUData, lastUpdate: lastUpdate, isScanComplete: scanIsComplete };
             updateSpectrumData(newData);
 
             if (antennaSwitch) {
@@ -810,7 +1247,7 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
                     // Split the response into pairs and process each one
                     sigArray = uValue.split(',').map(pair => {
                         const [freq, sig] = pair.split('=');
-                        return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
+                        return { freq: (freq / 1000).toFixed(3), sig: parseFloat(sig).toFixed(1) };
                     });
 
                     const messageClient = JSON.stringify({
@@ -1054,50 +1491,36 @@ async function sendCommandToClient(command) {
 async function startScan(command) {
     if (debug) console.log(command);
 
-    if (command === 'scan') {
-        // Rescan the last band
-        command = lastScanCommand;
-    } else {
-        // Update last scanned band
-        lastScanCommand = command;
-    }
-
-    // Normalise scan-0 to scan
+    // Route scan commands and track last explicitly chosen scan
     if (command === 'scan-0') {
-        command = 'scan';
+        lastScanCommand = 'scan-0';
+        command = 'scan-fm';
+    } else if (command === 'scan') {
+        if (lastScanCommand && lastScanCommand !== 'scan') {
+            let matchesLastScan = false;
+            if (lastScanCommand === 'scan-0') {
+                matchesLastScan = currentFrequency >= fmLowerLimit;
+            } else {
+                const idx = Number(lastScanCommand.split('-')[1]) - 1;
+                const range = formattedCustomRanges[idx];
+                if (range) matchesLastScan = currentFrequency >= range.low && currentFrequency <= range.high;
+            }
+            if (matchesLastScan && lastScanCommand !== 'scan-0') {
+                command = lastScanCommand; // redirect to custom range
+            }
+            // scan-0: fall through to current-band logic so tuningRange is applied
+        }
+    } else {
+        lastScanCommand = command; // scan-1, scan-2
     }
 
     // Exit if scan is running
     if (isScanRunning) return;
 
     const SCALE = 1000;
-    const HF_LOWER = 0.144;
-    const HF_UPPER = 27000;
-    const OIRT_LOWER = 64000;
-    const SCAN_LOWER = OIRT_LOWER / 1000;
-
-    // Update endpoint
-    if (currentFrequency >= SCAN_LOWER) {
-        const newData = { sd: null, isScanComplete: true };
-        updateSpectrumData(newData);
-    } else {
-        isScanHalted(true);
-
-        scanStatus = { scanStatus: "rejected" };
-        updateSpectrumData(scanStatus);
-
-        setTimeout(() => {
-            scanStatus = { scanStatus: "normal" };
-            updateSpectrumData(scanStatus);
-        }, 1000);
-
-        if (currentFrequency > 0) {
-            logWarn(`${pluginName}: Hardware is not capable of scanning below ${SCAN_LOWER} MHz.`);
-        } else {
-            logWarn(`${pluginName}: Scan failed, frequency detected as ${currentFrequency} MHz.`);
-        }
-        return;
-    }
+    const HF_LOWER_SCALED = 144;      // 0.144 MHz
+    const HF_UPPER_SCALED = 27000;    // 27.0 MHz
+    const OIRT_LOWER_SCALED = 64000;  // 64.0 MHz
 
     // Restrict to config tuning limit, else 0-108 MHz
     let tuningLimit = config.webserver.tuningLimit;
@@ -1111,77 +1534,125 @@ async function startScan(command) {
     // Scan started
     isScanHalted(false);
 
-    const tuningLowerLimitScaled = tuningLowerLimit * SCALE;
-    const tuningUpperLimitScaled = tuningUpperLimit * SCALE;
-    const currentFrequencyScaled = currentFrequency * SCALE;
+    if (clearGraphOnScan) {
+        updateSpectrumData({ sd: null, isScanComplete: true });
+    }
+
+    const currentFrequencyScaled = Math.round(currentFrequency * SCALE);
     const fmLowerLimitScaled = fmLowerLimit * SCALE;
 
-    tuningLowerLimitScan = Math.round(tuningLowerLimitScaled);
-    tuningUpperLimitScan = Math.round(tuningUpperLimitScaled);
+    let tuningLowerLimitScan = currentFrequencyScaled;
+    let tuningUpperLimitScan = currentFrequencyScaled;
 
-    if (tuningRange) {
-        const tuningRangeScaled = tuningRange * SCALE;
-        tuningLowerLimitScan = currentFrequencyScaled - tuningRangeScaled;
-        tuningUpperLimitScan = currentFrequencyScaled + tuningRangeScaled;
+    let activeStepSize = tuningStepSize;
+    let activeBandwidth = tuningBandwidth;
+
+    const DEFINED_BANDS = definedBands;
+
+    // DEFINED_BANDS covers LW/MW/SW bands and OIRT
+    let foundBand = null;
+    for (let b of DEFINED_BANDS) {
+        if (currentFrequencyScaled >= b.start && currentFrequencyScaled <= b.end) {
+            foundBand = b;
+            break;
+        }
     }
 
-    if (tuningUpperLimitScan > tuningUpperLimitScaled) tuningUpperLimitScan = tuningUpperLimitScaled;
-    if (tuningLowerLimitScan < tuningLowerLimitScaled) tuningLowerLimitScan = tuningLowerLimitScaled;
-
-    // Handle frequency limitations
-    if (tuningLowerLimitScan < HF_LOWER) tuningLowerLimitScan = HF_LOWER;
-    if (tuningLowerLimitScan > HF_UPPER && tuningLowerLimitScan < OIRT_LOWER) tuningLowerLimitScan = OIRT_LOWER;
-    if (tuningLowerLimitScan < OIRT_LOWER) tuningLowerLimitScan = OIRT_LOWER; // Doesn't like scanning HF frequencies
-
-    // Keep tuning range consistent for restricted tuning range setting
-    if (tuningRange) {
-        const tuningRangeScaled = tuningRange * SCALE;
-        tuningLowerLimitOffset = tuningRangeScaled - (tuningUpperLimitScan - currentFrequencyScaled);
-        tuningUpperLimitOffset = (tuningLowerLimitScan - currentFrequencyScaled) + tuningRangeScaled;
-
-        // Stay within restricted tuning range
-        if (tuningLowerLimitScan - tuningLowerLimitOffset < tuningLowerLimitScan) tuningLowerLimitOffset = 0;
-        if (tuningUpperLimitScan + tuningUpperLimitOffset < tuningUpperLimitScan) tuningUpperLimitOffset = 0;
+    if (foundBand) {
+        tuningLowerLimitScan = foundBand.start;
+        tuningUpperLimitScan = foundBand.end;
+        activeStepSize = foundBand.step;
+        activeBandwidth = foundBand.bw;
+    } else if (currentFrequencyScaled < 64000) {
+        tuningLowerLimitScan = Math.max(144, currentFrequencyScaled - 500);
+        tuningUpperLimitScan = Math.min(27000, currentFrequencyScaled + 500);
+        activeStepSize = 3;
+        activeBandwidth = 3;
     } else {
-        tuningLowerLimitOffset = 0;
-        tuningUpperLimitOffset = 0;
+        // 64 MHz+
+        const tuningLowerLimitScaled = Math.round(tuningLowerLimit * SCALE);
+        const tuningUpperLimitScaled = Math.round(tuningUpperLimit * SCALE);
+
+        tuningLowerLimitScan = tuningLowerLimitScaled;
+        tuningUpperLimitScan = tuningUpperLimitScaled;
+
+        if (tuningRange) {
+            const tuningRangeScaled = tuningRange * SCALE;
+            tuningLowerLimitScan = currentFrequencyScaled - tuningRangeScaled;
+            tuningUpperLimitScan = currentFrequencyScaled + tuningRangeScaled;
+        }
+
+        if (tuningUpperLimitScan > tuningUpperLimitScaled) tuningUpperLimitScan = tuningUpperLimitScaled;
+        if (tuningLowerLimitScan < tuningLowerLimitScaled) tuningLowerLimitScan = tuningLowerLimitScaled;
+        if (tuningLowerLimitScan < 64000) tuningLowerLimitScan = 64000;
+
+        // Split at fmLowerLimit, OIRT and FM are separate scans
+        if (currentFrequencyScaled < fmLowerLimitScaled && tuningUpperLimitScan > fmLowerLimitScaled) tuningUpperLimitScan = fmLowerLimitScaled;
+        if (currentFrequencyScaled >= fmLowerLimitScaled && tuningLowerLimitScan < fmLowerLimitScaled) tuningLowerLimitScan = fmLowerLimitScaled;
+
+        // When tuningRange is clipped by a band boundary, extend the opposite edge
+        if (tuningRange) {
+            const tuningRangeScaled = tuningRange * SCALE;
+            const lowerShortfall = tuningLowerLimitScan - (currentFrequencyScaled - tuningRangeScaled);
+            if (lowerShortfall > 0) {
+                tuningUpperLimitScan = Math.min(tuningUpperLimitScaled, tuningUpperLimitScan + lowerShortfall);
+            }
+            const upperShortfall = (currentFrequencyScaled + tuningRangeScaled) - tuningUpperLimitScan;
+            if (upperShortfall > 0) {
+                const effectiveFloor = Math.max(tuningLowerLimitScaled, currentFrequencyScaled >= fmLowerLimitScaled ? fmLowerLimitScaled : 64000);
+                tuningLowerLimitScan = Math.max(effectiveFloor, tuningLowerLimitScan - upperShortfall);
+            }
+        }
+
+        activeStepSize = tuningStepSize;
+        activeBandwidth = tuningBandwidth;
     }
 
-    // Limit scan to either OIRT band (64-86 MHz) or FM band (86-108 MHz)
-    if (currentFrequencyScaled < fmLowerLimitScaled && tuningUpperLimitScan > fmLowerLimitScaled) tuningUpperLimitScan = fmLowerLimitScaled;
-    if (currentFrequencyScaled >= fmLowerLimitScaled && tuningLowerLimitScan < fmLowerLimitScaled) tuningLowerLimitScan = fmLowerLimitScaled;
+
+    if (command === 'scan-fm') {
+        // FM button always scans the FM band regardless of current frequency
+        tuningLowerLimitScan = fmLowerLimitScaled;
+        tuningUpperLimitScan = Math.round(tuningUpperLimit * SCALE);
+        activeStepSize = tuningStepSize;
+        activeBandwidth = tuningBandwidth;
+        command = 'scan'; // fall through to the scan send block below
+    }
 
     // The magic happens here
     if (command === 'scan') {
-        if (currentFrequency < fmLowerLimit && disableScanBelowFmLowerLimit) {
+        if (currentFrequency < fmLowerLimit && disableScanBelowFmLowerLimit && currentFrequencyScaled >= 64000) {
             isScanHalted(true);
             logWarn(`${pluginName}: Scanning below ${fmLowerLimit} MHz is disabled.`);
             return;
-        } else if (currentFrequency >= SCAN_LOWER) {
-            sendCommandToClient(`Sa${tuningLowerLimitScan - tuningLowerLimitOffset}`);
-            sendCommandToClient(`Sb${tuningUpperLimitScan + tuningUpperLimitOffset}`);
-            sendCommandToClient(`Sc${tuningStepSize}`);
+        } else {
+            sendCommandToClient(`Sa${tuningLowerLimitScan}`);
+            sendCommandToClient(`Sb${tuningUpperLimitScan}`);
+            sendCommandToClient(`Sc${activeStepSize}`);
+            
             if (isModule) {
-                sendCommandToClient(`Sw${tuningBandwidth * 1000}`);
+                sendCommandToClient(`Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}`);
             } else {
-                switch (tuningBandwidth) {
-                    case 56: BWradio = 0; break;
-                    case 64: BWradio = 26; break;
-                    case 72: BWradio = 1; break;
-                    case 84: BWradio = 28; break;
-                    case 97: BWradio = 29; break;
-                    case 114: BWradio = 3; break;
-                    case 133: BWradio = 4; break;
-                    case 151: BWradio = 5; break;
-                    case 168: BWradio = 7; break;
-                    case 184: BWradio = 8; break;
-                    case 200: BWradio = 9; break;
-                    case 217: BWradio = 10; break;
-                    case 236: BWradio = 11; break;
-                    case 254: BWradio = 12; break;
-                    case 287: BWradio = 13; break;
-                    case 311: BWradio = 15; break;
-                    default: BWradio = 0; break;
+                let BWradio = 0;
+                if (activeBandwidth === 3) BWradio = 0;
+                else {
+                    switch (activeBandwidth) {
+                        case 56: BWradio = 0; break;
+                        case 64: BWradio = 26; break;
+                        case 72: BWradio = 1; break;
+                        case 84: BWradio = 28; break;
+                        case 97: BWradio = 29; break;
+                        case 114: BWradio = 3; break;
+                        case 133: BWradio = 4; break;
+                        case 151: BWradio = 5; break;
+                        case 168: BWradio = 7; break;
+                        case 184: BWradio = 8; break;
+                        case 200: BWradio = 9; break;
+                        case 217: BWradio = 10; break;
+                        case 236: BWradio = 11; break;
+                        case 254: BWradio = 12; break;
+                        case 287: BWradio = 13; break;
+                        case 311: BWradio = 15; break;
+                    }
                 }
                 sendCommandToClient(`Sf${BWradio}`);
             }
@@ -1190,16 +1661,12 @@ async function startScan(command) {
             structureCustomRanges();
 
             if (debug) {
-                console.log(`Sa${tuningLowerLimitScan - tuningLowerLimitOffset}`);
-                console.log(`Sb${tuningUpperLimitScan + tuningUpperLimitOffset}`);
-                console.log(`Sc${tuningStepSize}`);
-                console.log(isModule ? `Sw${tuningBandwidth * 1000}` : `Sf${BWradio}`);
+                console.log(`Sa${tuningLowerLimitScan}`);
+                console.log(`Sb${tuningUpperLimitScan}`);
+                console.log(`Sc${activeStepSize}`);
+                console.log(isModule ? `Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}` : `Sf${BWradio}`);
                 console.log('S');
             }
-        } else {
-            isScanHalted(true);
-            logWarn(`${pluginName}: Hardware is not capable of scanning below ${SCAN_LOWER} MHz.`);
-            return;
         }
     } else if (command === 'scan-1' || command === 'scan-2') {
         const rangeIndex = command === 'scan-1' ? 0 : 1;
@@ -1218,35 +1685,53 @@ async function startScan(command) {
         }
 
         // proceed with valid custom range
-        const rangeLowerScaled = Math.round(range.low * SCALE);
-        const rangeUpperScaled = Math.round(range.high * SCALE);
+        let rangeLowerScaled = Math.round(range.low * SCALE);
+        let rangeUpperScaled = Math.round(range.high * SCALE);
+
+        if (rangeLowerScaled < 30000) {
+            if (rangeLowerScaled < 144) rangeLowerScaled = 144;
+            if (rangeUpperScaled > 27000) rangeUpperScaled = 27000;
+            if (rangeUpperScaled - rangeLowerScaled > 3000) {
+                rangeUpperScaled = rangeLowerScaled + 3000;
+                logWarn(`${pluginName}: Custom AM range too large. Clamped to 3 MHz span.`);
+            }
+            activeStepSize = range.step ?? (rangeLowerScaled <= 1710 ? 1 : 2);
+            activeBandwidth = 3;
+        } else {
+            if (rangeLowerScaled < 64000) rangeLowerScaled = 64000;
+            if (rangeUpperScaled > 108000) rangeUpperScaled = 108000;
+            activeStepSize = range.step ?? (rangeUpperScaled <= fmLowerLimitScaled ? 30 : tuningStepSize);
+            activeBandwidth = rangeUpperScaled <= fmLowerLimitScaled ? 56 : tuningBandwidth;
+        }
 
         sendCommandToClient(`Sa${rangeLowerScaled}`);
         sendCommandToClient(`Sb${rangeUpperScaled}`);
-        sendCommandToClient(`Sc${tuningStepSize}`);
+        sendCommandToClient(`Sc${activeStepSize}`);
         
         if (isModule) {
-            sendCommandToClient(`Sw${tuningBandwidth * 1000}`);
+            sendCommandToClient(`Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}`);
         } else {
-            let BWradio;
-            switch (tuningBandwidth) {
-                case 56: BWradio = 0; break;
-                case 64: BWradio = 26; break;
-                case 72: BWradio = 1; break;
-                case 84: BWradio = 28; break;
-                case 97: BWradio = 29; break;
-                case 114: BWradio = 3; break;
-                case 133: BWradio = 4; break;
-                case 151: BWradio = 5; break;
-                case 168: BWradio = 7; break;
-                case 184: BWradio = 8; break;
-                case 200: BWradio = 9; break;
-                case 217: BWradio = 10; break;
-                case 236: BWradio = 11; break;
-                case 254: BWradio = 12; break;
-                case 287: BWradio = 13; break;
-                case 311: BWradio = 15; break;
-                default: BWradio = 0; break;
+            let BWradio = 0;
+            if (activeBandwidth === 3) BWradio = 0;
+            else {
+                switch (activeBandwidth) {
+                    case 56: BWradio = 0; break;
+                    case 64: BWradio = 26; break;
+                    case 72: BWradio = 1; break;
+                    case 84: BWradio = 28; break;
+                    case 97: BWradio = 29; break;
+                    case 114: BWradio = 3; break;
+                    case 133: BWradio = 4; break;
+                    case 151: BWradio = 5; break;
+                    case 168: BWradio = 7; break;
+                    case 184: BWradio = 8; break;
+                    case 200: BWradio = 9; break;
+                    case 217: BWradio = 10; break;
+                    case 236: BWradio = 11; break;
+                    case 254: BWradio = 12; break;
+                    case 287: BWradio = 13; break;
+                    case 311: BWradio = 15; break;
+                }
             }
             sendCommandToClient(`Sf${BWradio}`);
         }
@@ -1254,21 +1739,11 @@ async function startScan(command) {
         sendCommandToClient('S');
 
         structureCustomRanges();
-
-        if (debug) {
-            console.log(`Sa${rangeLowerScaled}`);
-            console.log(`Sb${rangeUpperScaled}`);
-            console.log(`Sc${tuningStepSize}`);
-            console.log(isModule ? `Sw${tuningBandwidth * 1000}` : `Sf${BWradio}`);
-            console.log('S');
-        }
-
-        // Mark scan as running properly
         isScanRunning = true;
     }
 
     // Log scan command
-    isInternalScan = false; // used for fallback only
+    //isInternalScan = false; // used for fallback only
 
     scanStatus = { scanStatus: "scanning" };
     updateSpectrumData(scanStatus);
@@ -1359,7 +1834,7 @@ async function startScan(command) {
                 logUpper = tuningUpperLimitScan;
             }
 
-            logInfo(`[${pluginName}] Spectrum ${command} (${logLower / 1000}-${logUpper / 1000} MHz) ${antennaResponse.enabled ? `for Ant. ${antennaCurrent} ` : ''}complete in ${completeTime} seconds.`);
+            logInfo(`[${pluginName}] Spectrum ${command} (${logLower / 1000}-${logUpper / 1000} MHz, ${activeStepSize} kHz steps, ${activeBandwidth} kHz BW) ${antennaResponse.enabled ? `for Ant. ${antennaCurrent} ` : ''}complete in ${completeTime} seconds.`);
         }
 
         if (!isFirstRun) lastRestartTime = Date.now();
@@ -1367,7 +1842,7 @@ async function startScan(command) {
         // Split response into pairs and process each one
         sigArray = uValue.split(',').map(pair => {
             const [freq, sig] = pair.split('=');
-            return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
+            return { freq: (freq / 1000).toFixed(3), sig: parseFloat(sig).toFixed(1) };
         });
 
         // if (debug) console.log(sigArray);

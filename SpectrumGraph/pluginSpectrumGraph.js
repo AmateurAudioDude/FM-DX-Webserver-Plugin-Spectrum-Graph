@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.3.0 by AAD
+    Spectrum Graph v1.4.0beta by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -7,7 +7,7 @@
 
 (() => {
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const BORDERLESS_THEME = true;                  // Background and text colours match FM-DX Webserver theme
 const ENABLE_MOUSE_CLICK_TO_TUNE = true;        // Allow the mouse to tune inside the graph
@@ -17,10 +17,11 @@ const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/
 const ALLOW_ABOVE_CANVAS = true;                // Displays a button to display above signal graph if there is room
 const CORRECT_TOOLTIP_PEAKS = true;             // Corrects inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps
 const LAST_ANTENNA_SCAN_NOTICE_MINUTES = 30;    // Periodically displays a notice if last scan of any antenna is outdated
+const MW_TUNING_STEP = 0;                       // MW tuning step in kHz (9 or 10). Set to 0 to use 'Enhanced Tuning' plugin preference
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
 const SPECTRUM_COLOR_STYLE = 'DEFAULT';         // 'DEFAULT', 'ACCURATE_4', 'ACCURATE_7', 'BALANCED', 'WARM_TOP', 'SMOOTH'
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const pluginVersion = '1.3.0';
 const pluginName = "Spectrum Graph";
@@ -309,6 +310,7 @@ let scanStatus = "waiting";
 let currentLanguage = DEFAULT_LANGUAGE || 'en';
 let tuningEnabled = true;           // Affects all clients
 let tuningEnabledLocally = true;    // Affects local client
+let fmLowerLimitClient = 86; // Updated by data.fmLowerLimit
 
 // For outdated antenna scan notice
 let isLastUpdateOutdated = false;
@@ -1379,7 +1381,7 @@ const ButtonFadeManager = {
     fadeDelayInitial: 30000, // ms
 
     getButtons() {
-        return document.querySelectorAll('#sdr-graph-button-container button');
+        return document.querySelectorAll('#sdr-graph-button-container button:not(#spectrum-graph-admin-btn)');
     },
 
     updateButtonOpacity() {
@@ -1674,10 +1676,11 @@ function ScanButton(customRangesOnly, applyFade = true) {
     ToggleAddButton('smoothing-on-off-button',      getTranslatedText('smoothGraphEdges'),       'chart-area',       'enableSmoothing',      'Smoothing',                    '96',   'Visually smooth graph edges');
     ToggleAddButton('fixed-dynamic-on-off-button',  getTranslatedText('relativeFixedScale'),     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136',  'Toggle between relative or fixed scale');
     ToggleAddButton('auto-baseline-on-off-button',  getTranslatedText('autoBaseline'),            'a',                'isAutoBaseline',       'AutoBaseline',                 '176',  'Auto baseline (adjust graph for noise floor)');
+    injectAdminSettingsButton();
     if (drawAboveCanvasIsPossible) {
-    ToggleAddButton('draw-above-canvas',            getTranslatedText('moveAboveSignalGraph'), 
-                                              drawAboveCanvasOverridePosition ? 'turn-down' : 
-                                                                                'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            '216',  'Move spectrum graph above signal graph');
+    ToggleAddButton('draw-above-canvas',            getTranslatedText('moveAboveSignalGraph'),
+                                              drawAboveCanvasOverridePosition ? 'turn-down' :
+                                                                                'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            '256',  'Move spectrum graph above signal graph');
 
         const drawAboveSignalCanvasButton = document.getElementById('draw-above-canvas');
         drawAboveSignalCanvasButton.addEventListener('click', function() {
@@ -2141,9 +2144,18 @@ function insertUpdateText(updateText, timeout = 10, forceFadeOut = false, isHtml
 var isTuneAuthenticated = false;
 var isTunerLocked = false;
 var isTuningAllowed = false;
+var isAdmin = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     checkAdminMode();
+    fetch('/spectrum-graph-plugin/api/config').then(r => r.ok ? r.json() : null).then(data => {
+        if (data) {
+            isAdmin = data.isAdmin || false;
+            if (data.config && typeof data.config.fmLowerLimit === 'number' && data.config.fmLowerLimit > 0) {
+                fmLowerLimitClient = data.config.fmLowerLimit;
+            }
+        }
+    }).catch(() => {});
 });
 
 // Is the user administrator?
@@ -2158,6 +2170,47 @@ function checkAdminMode() {
         setTimeout(() => {
             isTuningAllowed = true;
         }, 30000);
+    }
+}
+
+function injectAdminSettingsButton() {
+    if (!isAdmin) return;
+    const existing = document.getElementById('spectrum-graph-admin-btn');
+    if (existing) existing.remove();
+
+    const canvas = document.getElementById('sdr-graph-button-container');
+    if (!canvas) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'spectrum-graph-admin-btn';
+    btn.setAttribute('aria-label', 'Spectrum Graph Settings');
+    btn.classList.add('tooltip');
+    btn.setAttribute('data-tooltip', 'Spectrum Graph Settings');
+    btn.innerHTML = '<span><i class="fa-solid fa-gear"></i></span>';
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+    btn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open('/spectrum-graph-plugin/settings', '_blank');
+    });
+
+    const aBtn = document.getElementById('auto-baseline-on-off-button');
+    const rightPx = aBtn ? (parseInt(aBtn.style.right, 10) || 176) + 40 : 216;
+    btn.style.cssText = `position:absolute;top:${topValue};right:${rightPx}px;opacity:0;pointer-events:none;border-radius:5px;padding:5px 10px;cursor:pointer;transition:opacity 0.8s;width:32px;height:24px;display:flex;align-items:center;justify-content:center;`;
+
+    canvas.appendChild(btn);
+
+    const graphArea = document.querySelector('.canvas-container');
+    if (graphArea && !graphArea._adminBtnHoverBound) {
+        graphArea._adminBtnHoverBound = true;
+        graphArea.addEventListener('mouseenter', () => {
+            const b = document.getElementById('spectrum-graph-admin-btn');
+            if (b) { b.style.opacity = '0.8'; b.style.pointerEvents = 'auto'; }
+        });
+        graphArea.addEventListener('mouseleave', () => {
+            const b = document.getElementById('spectrum-graph-admin-btn');
+            if (b) { b.style.opacity = '0'; b.style.pointerEvents = 'none'; }
+        });
     }
 }
 
@@ -2263,6 +2316,10 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
                 label: data.fmRangeName,
                 tooltip: data.fmRangeFreq
             };
+        }
+
+        if (data && typeof data.fmLowerLimit === 'number' && data.fmLowerLimit > 0) {
+            fmLowerLimitClient = data.fmLowerLimit;
         }
 
         // --- Custom ranges array ---
@@ -2373,7 +2430,7 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
                         if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
                     }
 
-                    return { freq: (freq / 1000).toFixed(2), sig: parseFloat(sig).toFixed(1) };
+                    return { freq: (freq / 1000).toFixed(3), sig: parseFloat(sig).toFixed(1) };
                 });
             }
 
@@ -2508,7 +2565,7 @@ function outdatedAntennaScanInterval() {
 
 function getDummyData() {
     if (scanStatus !== 'scanning' && scanStatus !== 'rejected') dataError = true;
-    let dummyFreqStart = 86;
+    let dummyFreqStart = fmLowerLimitClient;
     let dummyFreqEnd = 108;
     const element = document.querySelector("#dashboard-panel-description.hidden-panel .flex-container .tuner-desc .text-small .color-4");
     if (element) {
@@ -2517,6 +2574,7 @@ function getDummyData() {
       const match = text.match(regex);
       if (match && dummyFreqStart >= 0 && dummyFreqEnd <= 200) {
           dummyFreqStart = Math.max(Number(match[1]), 86); // Match fmLowerLimit value (default: 86)
+          fmLowerLimitClient = dummyFreqStart;
           dummyFreqEnd = Number(match[3]);
       }
     }
@@ -2902,18 +2960,34 @@ function initializeCanvasInteractions() {
         }
 
         // Calculate frequency
-        const freq = minFreq + (mouseX - xOffset) / xScale;
+        const rawFreq = minFreq + (mouseX - xOffset) / xScale;
 
-        if (freq < minFreq || freq > minFreq + freqRange) {
+        if (rawFreq < minFreq || rawFreq > minFreq + freqRange) {
             tooltip.style.visibility = 'hidden';
             return;
         }
+
+        // AM scan - Snap to tuning steps
+        function getTuningStep(f) {
+            if (f < 0.351) return 0.009; // LW
+            if (f <= 1.710) { // MW
+                if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP / 1000;
+                const mwStepPref = localStorage.getItem('mwStepPreference'); // Set by Enhanced_Tuning_Main.js
+                return (mwStepPref === 'true') ? 0.010 : 0.009;
+            }
+            if (f < 30.0) return 0.005; // SW
+            if (f < 74.0) return 0.030; // OIRT
+            return 0.100; // FM
+        }
+
+        const tStep = getTuningStep(rawFreq);
+        const freq = Math.round(rawFreq / tStep) * tStep;
 
         // Find closest point in sigArray to the frequency under the cursor
         let closestPoint = null;
         let minDistance = Infinity;
         for (let point of sigArray) {
-            const distance = Math.abs(point.freq - freq.toFixed(1));
+            const distance = Math.abs(parseFloat(point.freq) - freq);
             if (distance < minDistance) {
                 minDistance = distance;
                 closestPoint = point;
@@ -2974,7 +3048,7 @@ function initializeCanvasInteractions() {
             }
 
             // Calculate tooltip content
-            const freqText = `${freq.toFixed(1)} MHz`;
+            const freqText = freq < 30.0 ? `${freq.toFixed(3)} MHz` : freq < fmLowerLimitClient ? `${freq.toFixed(2)} MHz` : `${freq.toFixed(1)} MHz`; // AM scan
             const signalText = `, ${Math.round(signalValue.toFixed(2) - sigOffset).toFixed(0)} ${sigDesc}`;
             const originalSignalValueTooltip = Math.round(originalSignalValue.toFixed(2) - sigOffset).toFixed(0);
 
@@ -2994,7 +3068,7 @@ function initializeCanvasInteractions() {
 
             // Calculate position of circle
             const adjustedSignalValue = signalValue - minSig;
-            const circleX = xOffset + (closestPoint.freq - minFreq) * xScale;
+            const circleX = xOffset + (freq - minFreq) * xScale; 
             const circleY = canvas.height - (Math.max(0, adjustedSignalValue) * yScale) - 20;
 
             // Draw circle at tip of the signal
@@ -3053,12 +3127,28 @@ function initializeCanvasInteractions() {
         if (mouseY > rect.height - resizeEdge) return;
 
         // Calculate frequency
-        const freq = minFreq + (mouseX - xOffset) / xScale;
+        const rawFreq = minFreq + (mouseX - xOffset) / xScale;
 
-        if (freq < minFreq || freq > minFreq + freqRange) return;
+        if (rawFreq < minFreq || rawFreq > minFreq + freqRange) return;
+
+        // AM scan - Snap to tuning steps on click
+        function getTuningStep(f) {
+            if (f < 0.351) return 0.009; // LW
+            if (f <= 1.710) { // MW
+                if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP / 1000;
+                const mwStepPref = localStorage.getItem('mwStepPreference'); // Set by Enhanced_Tuning_Main.js
+                return (mwStepPref === 'true') ? 0.010 : 0.009;
+            }
+            if (f < 30.0) return 0.005; // SW
+            if (f < 74.0) return 0.030; // OIRT
+            return 0.100; // FM
+        }
+
+        const tStep = getTuningStep(rawFreq);
+        const freq = Math.round(rawFreq / tStep) * tStep;
 
         // Send WebSocket command
-        const command = `T${Math.round(freq.toFixed(1) * 1000)}`;
+        const command = `T${Math.round(freq * 1000)}`;
         logInfo(`Sending command "${command}"`);
         socket.send(command);
         setTimeout(() => {
@@ -3073,12 +3163,22 @@ function initializeCanvasInteractions() {
 
             // Normalize deltaY value for cross-browser consistency
             const delta = event.deltaY || event.detail || -event.wheelDelta;
+            const direction = delta < 0 ? 1 : -1;
 
-            if (delta < 0) {
-                // Scroll up
+            const freq = parseFloat($('#data-frequency').text());
+
+            if (freq >= 0.50 && freq < 1.71) {
+                // Use correct step based on mwStepPreference, set by Enhanced Tuning plugin
+                const mwStep = (MW_TUNING_STEP !== 0) ? MW_TUNING_STEP
+                    : (localStorage.getItem('mwStepPreference') === 'true') ? 10 : 9; // Set by Enhanced_Tuning_Main.js
+                const freqKhz = Math.round(freq * 1000);
+                const newFreqKhz = direction > 0
+                    ? freqKhz + (mwStep - (freqKhz % mwStep))
+                    : freqKhz - ((freqKhz % mwStep) || mwStep);
+                socket.send('T' + newFreqKhz);
+            } else if (delta < 0) {
                 tuneUp();
             } else {
-                // Scroll down
                 tuneDown();
             }
         }
@@ -3450,6 +3550,15 @@ function drawGraph() {
         }
     } else {
         freqStep = 0.1;
+        const fullRange = Math.round((maxFreq - minFreq) * 1000) / 1000;
+        if (debug) console.log("MHz range:", fullRange);
+        if (fullRange >= 1.0 && fullRange < 1.5) freqStep = 0.05;
+        if (fullRange >= 0.9 && fullRange < 1.0) freqStep = 0.05;
+        if (fullRange >= 0.5 && fullRange < 0.9) freqStep = 0.05;
+        if (fullRange >= 0.3 && fullRange < 0.5) freqStep = 0.02;
+        if (fullRange >= 0.2 && fullRange < 0.3) freqStep = 0.01;
+        if (fullRange >= 0.1 && fullRange < 0.2) freqStep = 0.005;
+        if (fullRange > 0.0 && fullRange < 0.1) freqStep = 0.005;
     }
 
     // Scaling factors
@@ -3488,7 +3597,11 @@ function drawGraph() {
 
     for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
         const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
-        if (freq !== minFreq && freq !== maxFreq) ctx.fillText(freq.toFixed(1), x - 10, height - 5);
+        
+        if (freq !== minFreq && freq !== maxFreq) {
+            let decimals = freqStep < 0.1 ? (freqStep < 0.05 ? 3 : 2) : 1; // AM scan
+            ctx.fillText(freq.toFixed(decimals), x - 15, height - 5);
+        }
 
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
         ctx.lineWidth = 1;
@@ -3852,10 +3965,16 @@ function drawGraph() {
         let highlightBandwidthLow = 0.1;
         let highlightBandwidthHigh = 0.1;
 
+        // AM scan
+        if (highlightFreq < 30.0) {
+            highlightBandwidthLow = 0.003;
+            highlightBandwidthHigh = 0.003;
+        }
+
         // Adjust bandwidth if at the edge
         if (highlightFreq < minFreq) {
             highlightBandwidthLow = 0.0;
-            highlightBandwidthHigh = 0.1;
+            highlightBandwidthHigh = highlightFreq < 30.0 ? 0.003 : 0.1; // AM scan
         }
 
         // Left and right X calculations for the highlight region
