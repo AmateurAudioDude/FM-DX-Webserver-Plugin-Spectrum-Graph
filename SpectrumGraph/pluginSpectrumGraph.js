@@ -3591,16 +3591,23 @@ function drawGraph() {
     }
     ctx.strokeStyle = '#ccc';
 
-    // Round minFreq if setting is enabled
-    let minFreqRounded = minFreq;
-    minFreqRounded = isDecimalMarkerRoundOff ? Math.ceil(minFreqRounded) : minFreqRounded;
+    // Snap label loop start to nearest freqStep multiple so labels land on clean values
+    let minFreqRounded = Math.ceil(minFreq / freqStep) * freqStep;
+
+    const isLwMwBand = maxFreq < 2.0; // Show kHz labels for LW and MW bands
 
     for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
         const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
-        
+
         if (freq !== minFreq && freq !== maxFreq) {
-            let decimals = freqStep < 0.1 ? (freqStep < 0.05 ? 3 : 2) : 1; // AM scan
-            ctx.fillText(freq.toFixed(decimals), x - 15, height - 5);
+            let label;
+            if (isLwMwBand) {
+                label = String(Math.round(freq * 1000));
+            } else {
+                let decimals = freqStep < 0.1 ? (freqStep < 0.05 ? 3 : 2) : 1;
+                label = freq.toFixed(decimals);
+            }
+            ctx.fillText(label, x - 15, height - 5);
         }
 
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
