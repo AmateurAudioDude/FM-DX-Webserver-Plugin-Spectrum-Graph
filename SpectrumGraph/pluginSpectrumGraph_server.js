@@ -189,21 +189,23 @@ const checkStrictAdmin = (req, res, next) => {
 
 function customRouter() {
     endpointsRouter.get('/spectrum-graph-plugin/api/config', (req, res) => {
-        res.json({
-            isAdmin: (req.session && req.session.isAdminAuthenticated) || false,
-            config: {
+        const isAdmin = (req.session && req.session.isAdminAuthenticated) || false;
+        const response = { isAdmin, config: { fmLowerLimit } };
+        if (isAdmin) {
+            response.config = {
+                fmLowerLimit,
                 rescanDelay,
                 tuningRange,
                 tuningStepSize,
                 tuningBandwidth,
-                fmLowerLimit,
                 customRanges,
                 warnIncompleteData,
                 logLocalCommands,
                 clearGraphOnScan,
                 definedBands,
-            }
-        });
+            };
+        }
+        res.json(response);
     });
 
     endpointsRouter.post('/spectrum-graph-plugin/api/config', checkStrictAdmin, express.json(), (req, res) => {
@@ -380,7 +382,7 @@ function customRouter() {
         <div class="section-label" style="margin-top:4px">Scanning</div>
         <div class="field-group">
             <div class="field-row">
-                <div><div class="field-label">Rescan Delay</div><div class="field-hint">Number of seconds elapsed since the previous scan before a new scan can be initiated. Set to 0 to disable.<br>Caution: Lowering the value of Rescan Delay increases the risk of your server being overloaded with scan requests.</div></div>
+                <div><div class="field-label">Rescan Delay</div><div class="field-hint">Number of seconds elapsed since the previous scan before a new scan can be initiated. Set to 0 to disable.<br>Caution: Lowering the value increases the risk of your server being overloaded with scan requests.</div></div>
                 <div class="field-control"><input type="number" id="rescanDelay" value="${cfg.rescanDelay}" min="0" step="1"></div>
             </div>
             <div class="field-row">

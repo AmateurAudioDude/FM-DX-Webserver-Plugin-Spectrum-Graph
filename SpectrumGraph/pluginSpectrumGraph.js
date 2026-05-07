@@ -792,6 +792,7 @@ function enableButtonInteractions(buttonId) {
             const pluginButton = document.getElementById(`${buttonId}`);
             if (pluginButton && window.innerWidth < 480 && window.innerHeight > window.innerWidth) {
                 pluginButton.setAttribute('data-tooltip', getTranslatedText('resolutionTooLowToDisplay'));
+                pluginButton.style.opacity = '0.5';
             }
         }
     });
@@ -3161,25 +3162,38 @@ function initializeCanvasInteractions() {
         if (ENABLE_MOUSE_SCROLL_WHEEL && tuningEnabled && tuningEnabledLocally) {
             event.preventDefault(); // Prevent webpage scrolling
 
-            // Normalize deltaY value for cross-browser consistency
-            const delta = event.deltaY || event.detail || -event.wheelDelta;
-            const direction = delta < 0 ? 1 : -1;
-
-            const freq = parseFloat($('#data-frequency').text());
-
-            if (freq >= 0.50 && freq < 1.71) {
-                // Use correct step based on mwStepPreference, set by Enhanced Tuning plugin
-                const mwStep = (MW_TUNING_STEP !== 0) ? MW_TUNING_STEP
-                    : (localStorage.getItem('mwStepPreference') === 'true') ? 10 : 9; // Set by Enhanced_Tuning_Main.js
-                const freqKhz = Math.round(freq * 1000);
-                const newFreqKhz = direction > 0
-                    ? freqKhz + (mwStep - (freqKhz % mwStep))
-                    : freqKhz - ((freqKhz % mwStep) || mwStep);
-                socket.send('T' + newFreqKhz);
-            } else if (delta < 0) {
-                tuneUp();
+            // Delegate scroll event to 'Enhanced Tuning' plugin
+            const freqContainer = document.getElementById("freq-container");
+            if (freqContainer) {
+                // Forward the mouse wheel so 'Enhanced Tuning' plugin takes over all logic (steps, limits, and loop)
+                const clone = new WheelEvent("wheel", {
+                    deltaY: event.deltaY,
+                    detail: event.detail,
+                    wheelDelta: event.wheelDelta,
+                    bubbles: true,
+                    cancelable: true
+                });
+                freqContainer.dispatchEvent(clone);
             } else {
-                tuneDown();
+                // Original fallback logic if 'Enhanced Tuning' plugin is not installed/active
+                const delta = event.deltaY || event.detail || -event.wheelDelta;
+                const direction = delta < 0 ? 1 : -1;
+                const freq = parseFloat($('#data-frequency').text());
+
+                if (freq >= 0.50 && freq < 1.71) {
+                    // Use correct step based on mwStepPreference, set by Enhanced Tuning plugin
+                    const mwStep = (MW_TUNING_STEP !== 0) ? MW_TUNING_STEP
+                        : (localStorage.getItem('mwStepPreference') === 'true') ? 10 : 9; // Set by Enhanced_Tuning_Main.js
+                    const freqKhz = Math.round(freq * 1000);
+                    const newFreqKhz = direction > 0
+                        ? freqKhz + (mwStep - (freqKhz % mwStep))
+                        : freqKhz - ((freqKhz % mwStep) || mwStep);
+                    socket.send('T' + newFreqKhz);
+                } else if (delta < 0) {
+                    tuneUp();
+                } else {
+                    tuneDown();
+                }
             }
         }
     }
@@ -3594,7 +3608,7 @@ function drawGraph() {
     // Snap label loop start to nearest freqStep multiple so labels land on clean values
     let minFreqRounded = Math.ceil(minFreq / freqStep) * freqStep;
 
-    const isLwMwBand = maxFreq < 2.0; // Show kHz labels for LW and MW bands
+    const isLwMwBand = maxFreq < 1.8; // Show kHz labels for LW and MW bands
 
     for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
         const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
@@ -3993,6 +4007,12 @@ function drawGraph() {
 
         // Ensure that rightX doesn't overflow past the right edge
         rightX = Math.min(rightX, xOffset + (maxFreq - minFreq) * xScale);  // Prevent going past the right edge
+
+        // If highlight is fully off-screen (left or right), suppress drawing
+        if (rightX <= xOffset || leftX >= xOffset + (maxFreq - minFreq) * xScale) {
+            leftX = undefined;
+            rightX = undefined;
+        }
     } else {
         // Don't draw if frequency is completely out of range
         leftX = undefined;
