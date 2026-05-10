@@ -1037,7 +1037,7 @@ function isDrawAboveCanvas() {
 
         const newCanvasStyle = `
             .canvas-container { overflow: ${newPosition ? 'visible' : 'hidden'}; }
-            #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button, #draw-above-canvas {
+            #sdr-graph, #spectrum-scan-button, #hold-button, #smoothing-on-off-button, #fixed-dynamic-on-off-button, #auto-baseline-on-off-button, #draw-above-canvas, #spectrum-graph-admin-btn {
                 margin-top: ${newPosition ? -canvasFullHeight - 2 : 0}px;
             }
         `;
@@ -1677,11 +1677,10 @@ function ScanButton(customRangesOnly, applyFade = true) {
     ToggleAddButton('smoothing-on-off-button',      getTranslatedText('smoothGraphEdges'),       'chart-area',       'enableSmoothing',      'Smoothing',                    '96',   'Visually smooth graph edges');
     ToggleAddButton('fixed-dynamic-on-off-button',  getTranslatedText('relativeFixedScale'),     'arrows-up-down',   'fixedVerticalGraph',   'FixedVerticalGraph',           '136',  'Toggle between relative or fixed scale');
     ToggleAddButton('auto-baseline-on-off-button',  getTranslatedText('autoBaseline'),            'a',                'isAutoBaseline',       'AutoBaseline',                 '176',  'Auto baseline (adjust graph for noise floor)');
-    injectAdminSettingsButton();
     if (drawAboveCanvasIsPossible) {
     ToggleAddButton('draw-above-canvas',            getTranslatedText('moveAboveSignalGraph'),
                                               drawAboveCanvasOverridePosition ? 'turn-down' :
-                                                                                'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            '256',  'Move spectrum graph above signal graph');
+                                                                                'turn-up',          'isAboveSignalCanvas',  'AboveSignalCanvas',            '216',  'Move spectrum graph above signal graph');
 
         const drawAboveSignalCanvasButton = document.getElementById('draw-above-canvas');
         drawAboveSignalCanvasButton.addEventListener('click', function() {
@@ -1694,6 +1693,7 @@ function ScanButton(customRangesOnly, applyFade = true) {
             sdrCanvasDrawAboveCanvas.style.display = 'none';
         }
     }
+    injectAdminSettingsButton();
     if (typeof initTooltips === 'function') initTooltips();
     if (updateText) insertUpdateText(updateText);
 
@@ -2195,8 +2195,9 @@ function injectAdminSettingsButton() {
         window.open('/spectrum-graph-plugin/settings', '_blank');
     });
 
-    const aBtn = document.getElementById('auto-baseline-on-off-button');
-    const rightPx = aBtn ? (parseInt(aBtn.style.right, 10) || 176) + 40 : 216;
+    const drawAboveBtn = document.getElementById('draw-above-canvas');
+    const drawAboveVisible = drawAboveBtn && drawAboveBtn.style.display !== 'none';
+    const rightPx = drawAboveVisible ? 256 : 216;
     btn.style.cssText = `position:absolute;top:${topValue};right:${rightPx}px;opacity:0;pointer-events:none;border-radius:5px;padding:5px 10px;cursor:pointer;transition:opacity 0.8s;width:32px;height:24px;display:flex;align-items:center;justify-content:center;`;
 
     canvas.appendChild(btn);
