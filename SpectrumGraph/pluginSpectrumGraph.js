@@ -37,6 +37,7 @@ const MARKER_TOLERANCE_PX = 3;                                              // M
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0;     // Signal calibration (requires external hardware to set signal strength)
 const SCAN_COVERAGE_OPACITY = 0.2;                                          // Scanner plugin 'defaultScannerMode' opacity value
 const DEFAULT_LANGUAGE = 'en';                                              // Default language (browser language setting overrides)
+const HIDE_ROTATOR_CONTAINER = false;                                       // Setting for PST Rotator plugin
 
 // Language translations
 const translations = {
@@ -249,7 +250,6 @@ let canvasFullWidth = 1160; // Initial value
 let canvasFullHeight = 140; // Initial value
 let canvasHeightSmall = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
 let canvasHeightLarge = BORDERLESS_THEME ? canvasFullHeight - canvasHeightOffset: canvasFullHeight - canvasHeightOffset; // Initial value
-let hideContainerRotator = false; // Setting for PST Rotator plugin
 let drawAboveCanvasIsPossible = false;
 let drawAboveCanvasOverridePosition = false;
 let drawAboveCanvasPreviousStatus = false;
@@ -2042,7 +2042,6 @@ function insertUpdateText(updateText, timeout = 10, forceFadeOut = false, isHtml
     Object.assign(updateTextElement.style, {
         position: 'absolute',
         top: `${textTop}px`,
-        left: ((leftMargin || 0) + 44) + 'px',
         color: 'var(--color-5-transparent)',
         filter: 'brightness(125%)',
         fontSize: '14px',
@@ -2068,7 +2067,10 @@ function insertUpdateText(updateText, timeout = 10, forceFadeOut = false, isHtml
         if (canvasContainer && canvasContainer.classList.contains('canvas-container')) {
             canvasContainer.style.position = 'relative';
             clearTimeout(pendingMessage1);
-            pendingMessage1 = setTimeout(() => canvasContainer.appendChild(updateTextElement), ((isFirstMessage && !isHtml) || isInstant ? 60 : 300));
+            pendingMessage1 = setTimeout(() => {
+                updateTextElement.style.left = (canvas.offsetLeft + (leftMargin || 0) + 44) + 'px';
+                canvasContainer.appendChild(updateTextElement);
+            }, ((isFirstMessage && !isHtml) || isInstant ? 60 : 300));
         }
     }
 
@@ -2793,7 +2795,7 @@ function displaySdrGraph(applyFade = true) {
         }
         const ContainerRotator = document.getElementById('containerRotator');
         if (ContainerRotator) {
-            if (hideContainerRotator) {
+            if (HIDE_ROTATOR_CONTAINER) {
                 ContainerRotator.style.display = 'none';
                 canvasFullWidthOffset = 0;
             } else {
@@ -2803,7 +2805,6 @@ function displaySdrGraph(applyFade = true) {
                     #sdr-graph {
                         width: 82%;
                         margin-left: 200px;
-                        margin-top: 0px;
                     }
                 `;
                 document.head.appendChild(style);
