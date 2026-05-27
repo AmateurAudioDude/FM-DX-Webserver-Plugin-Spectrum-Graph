@@ -34,6 +34,7 @@ const CHECK_FOR_UPDATES = true;
 const ANTENNA_SCAN_NOTICE_TIMEOUT_SECONDS = 10;                             // Outdated antenna notify display timeout
 const ANTENNA_SCAN_NOTICE_INTERVAL_SECONDS = 180;                           // Outdated antenna notify display interval
 const MARKER_TOLERANCE_PX = 3;                                              // Mouse position tolerance in pixels of marker selection
+const CAL_RF_LEVEL_OFFSET = 0.0;                                            // Overall signal calibration (offset for loss)
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0;     // Signal calibration (requires external hardware to set signal strength)
 const SCAN_COVERAGE_OPACITY = 0.2;                                          // Scanner plugin 'defaultScannerMode' opacity value
 const HIDE_ROTATOR_CONTAINER = false;                                       // Setting for PST Rotator plugin
@@ -1231,6 +1232,7 @@ async function setupSendSocket() {
                                     const _f = parseFloat(item.freq);
                                     let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
                                     let sig = parseFloat(item.sig);
+                                    if (CAL_RF_LEVEL_OFFSET) sig = sig + CAL_RF_LEVEL_OFFSET;
                                     if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
                                     item.sig = sig.toFixed(2);
                                 });
@@ -2431,6 +2433,7 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
                         const _f = parseFloat(freq) / 1000;
                         let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
                         sig = parseFloat(sig);
+                        if (CAL_RF_LEVEL_OFFSET) sig = sig + CAL_RF_LEVEL_OFFSET;
                         if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
                     }
 
