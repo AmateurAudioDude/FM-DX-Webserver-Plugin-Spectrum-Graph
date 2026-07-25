@@ -820,7 +820,8 @@ function createButton(buttonId) {
                 functionFound = true;
 
                 // Add right-click listener
-                $(document).on('contextmenu', `#${buttonId}`, function (e) {
+                document.addEventListener('contextmenu', function (e) {
+                    if (!e.target.closest(`#${buttonId}`)) return;
                     e.preventDefault();
                     createLanguageContextMenu(e.clientX, e.clientY);
                 });
@@ -862,10 +863,10 @@ function createButton(buttonId) {
 }
 `;
 
-        $("<style>")
-            .prop("type", "text/css")
-            .html(aSpectrumCss)
-            .appendTo("head");
+        const spectrumHoverStyle = document.createElement('style');
+        spectrumHoverStyle.type = 'text/css';
+        spectrumHoverStyle.innerHTML = aSpectrumCss;
+        document.head.appendChild(spectrumHoverStyle);
     });
 }
 
@@ -895,46 +896,43 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
     right: 0px;
     }
     `
-    $("<style>")
-        .prop("type", "text/css")
-        .html(aSpectrumCss)
-        .appendTo("head");
+    const spectrumButtonStyle = document.createElement('style');
+    spectrumButtonStyle.type = 'text/css';
+    spectrumButtonStyle.innerHTML = aSpectrumCss;
+    document.head.appendChild(spectrumButtonStyle);
 
-    const aSpectrumText = $('<strong>', {
-        class: 'aspectrum-text',
-        html: SPECTRUM_BUTTON_NAME
-    });
+    const aSpectrumText = document.createElement('strong');
+    aSpectrumText.className = 'aspectrum-text';
+    aSpectrumText.innerHTML = SPECTRUM_BUTTON_NAME;
 
-    const aSpectrumButton = $('<button>', {
-        id: 'spectrum-graph-button',
-    });
+    const aSpectrumButton = document.createElement('button');
+    aSpectrumButton.id = 'spectrum-graph-button';
 
-    aSpectrumButton.append(aSpectrumText);
+    aSpectrumButton.appendChild(aSpectrumText);
 
     function initializeSpectrumButton() {
 
-        let buttonWrapper = $('#button-wrapper');
-        if (buttonWrapper.length < 1) {
+        let buttonWrapper = document.querySelector('#button-wrapper');
+        if (!buttonWrapper) {
             if (window.location.pathname !== '/setup') buttonWrapper = createDefaultButtonWrapper();
         }
 
-        if (window.location.pathname !== '/setup' && buttonWrapper.length) {
-            aSpectrumButton.addClass('hide-phone bg-color-2')
-            buttonWrapper.append(aSpectrumButton);
+        if (window.location.pathname !== '/setup' && buttonWrapper) {
+            aSpectrumButton.classList.add('hide-phone', 'bg-color-2');
+            buttonWrapper.appendChild(aSpectrumButton);
         }
         displaySignalCanvas();
     }
 
     // Create a default button wrapper if it does not exist
     function createDefaultButtonWrapper() {
-        const wrapperElement = $('.tuner-info');
-        if (wrapperElement.length) {
-            const buttonWrapper = $('<div>', {
-                id: 'button-wrapper'
-            });
-            buttonWrapper.addClass('button-wrapper');
-            wrapperElement.append(buttonWrapper);
-            if (useLegacyButtonSpacingBetweenCanvas) wrapperElement.append(document.createElement('br'));
+        const wrapperElement = document.querySelector('.tuner-info');
+        if (wrapperElement) {
+            const buttonWrapper = document.createElement('div');
+            buttonWrapper.id = 'button-wrapper';
+            buttonWrapper.classList.add('button-wrapper');
+            wrapperElement.appendChild(buttonWrapper);
+            if (useLegacyButtonSpacingBetweenCanvas) wrapperElement.appendChild(document.createElement('br'));
             return buttonWrapper;
         } else {
             logError(`Standard button location not found. Unable to add button.`);
@@ -959,7 +957,7 @@ if (document.querySelector('.dashboard-panel-plugin-list')) {
             }, 100);
         }, 200);
 
-        aSpectrumButton.on('click', function() {
+        aSpectrumButton.addEventListener('click', function() {
             if (isButtonDisabled) {
                 return;
             }
@@ -3183,7 +3181,7 @@ function initializeCanvasInteractions() {
                 // Original fallback logic if 'Enhanced Tuning' plugin is not installed/active
                 const delta = event.deltaY || event.detail || -event.wheelDelta;
                 const direction = delta < 0 ? 1 : -1;
-                const freq = parseFloat($('#data-frequency').text());
+                const freq = parseFloat(document.querySelector('#data-frequency').textContent);
 
                 if (freq >= 0.50 && freq < 1.71) {
                     // Use correct step based on mwStepPreference, set by Enhanced Tuning plugin
