@@ -316,6 +316,7 @@ let fmLowerLimitClient = 86; // Updated by data.fmLowerLimit
 // For outdated antenna scan notice
 let isLastUpdateOutdated = false;
 let isUsingAntennaSwitch = false;
+let _reinitializingForAntennaSwitch = false;
 let outdatedAntennaList = '';
 
 // let variables for right-click
@@ -2605,8 +2606,15 @@ async function getCurrentAntenna(draw = true) {
             .then(data => {
                 // Data of current antenna
                 if (data.ant) {
+                    const prevAntenna = currentAntenna;
                     currentAntenna = data.ant;
                     logInfo(`Data found for antenna ${data.ant}.`);
+
+                    if (prevAntenna !== currentAntenna && isUsingAntennaSwitch && !_reinitializingForAntennaSwitch) {
+                        _reinitializingForAntennaSwitch = true;
+                        initializeGraph().finally(() => { _reinitializingForAntennaSwitch = false; });
+                        return;
+                    }
                 }
 
                 displayHighlightedFreqs(); // Used for right-click
