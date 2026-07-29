@@ -93,7 +93,7 @@ const translations = {
     relativeFixedScale: `Escala Relativa/Fija`,
     autoBaseline: `Línea Base Automática`,
     performManualScan: `Realizar Escaneo Manual`,
-    moveAboveSignalGraph: `Mover por Encima del Gráfico de Señales`,
+    moveAboveSignalGraph: `Mover por Encima del Gráfico de Señal`,
     resolutionTooLowToDisplay: `Resolución demasiado baja para mostrar`,
     scanOlderThanXMinutes: `El escaneo es más antiguo que {hours}h {minutes}m para {antennas}`,
     noSignal: `[${pluginName}] Error al recibir datos de señal`,
@@ -103,24 +103,24 @@ const translations = {
     __name: 'Français',
     spectrumGraph: `Graphique du spectre`,
     newVersion: `Une nouvelle version de Spectrum Graph est disponible`,
-    spectrumScanIncomplete: `L'analyse du spectre semble incomplète. Effectuez un nouveau scan manuel si nécessaire.`,
+    spectrumScanIncomplete: `L'analyse du spectre semble incomplète. Effectuez un scan manuel si nécessaire.`,
     spectrumScanInvalid: `L'analyse du spectre semble invalide. Effectuez un scan manuel si nécessaire.`,
     spectrumScanLocked: `Le balayage est actuellement verrouillé par l'administrateur`,
     errorDuringInitialisation: `[${pluginName}] Erreur lors de l'initialisation du graphique. Le serveur pourrait avoir besoin d'être redémarré.`,
     holdPeaks: `Maintenir les Pics`,
     smoothGraphEdges: `Lisser les Bords du Graphique`,
     relativeFixedScale: `Échelle Relative/Fixe`,
-    autoBaseline: `Base Automatique`,
+    autoBaseline: `Ligne de base automatique`,
     performManualScan: `Effectuer un Scan Manuel`,
     moveAboveSignalGraph: `Déplacer au-dessus du Graphique du Signal`,
     resolutionTooLowToDisplay: `Résolution trop basse pour afficher`,
     scanOlderThanXMinutes: `Le scan est plus ancien que {hours}h {minutes}m pour {antennas}`,
     noSignal: `[${pluginName}] Erreur lors de la réception des données du signal`,
-    scanning: `Numérisation`,
+    scanning: `Balayage`,
   },
   de: {
     __name: 'Deutsch',
-    spectrumGraph: `Spektrumanalyse`,
+    spectrumGraph: `Spektrumanzeige`,
     newVersion: `Eine neue Version von Spectrum Graph ist verfügbar`,
     spectrumScanIncomplete: `Spektrums-Scan scheint unvollständig. Führen Sie bei Bedarf einen manuellen Scan durch.`,
     spectrumScanInvalid: `Spektrums-Scan scheint ungültig. Führen Sie bei Bedarf einen manuellen Scan durch.`,
@@ -139,7 +139,7 @@ const translations = {
   },
   nl: {
     __name: 'Nederlands',
-    spectrumGraph: `Spectrumschaart`,
+    spectrumGraph: `Spectrumgrafiek`,
     newVersion: `Er is een nieuwe versie van Spectrum Graph beschikbaar`,
     spectrumScanIncomplete: `Spectrumscan lijkt onvolledig. Voer indien nodig een handmatige scan uit.`,
     spectrumScanInvalid: `Spectrumscan lijkt ongeldig. Voer indien nodig een handmatige scan uit.`,
@@ -183,7 +183,7 @@ const translations = {
     spectrumScanInvalid: `Skanowanie widma wydaje się nieprawidłowe. W razie potrzeby przeprowadź ręczne skanowanie.`,
     spectrumScanLocked: `Skanowanie jest obecnie zablokowane przez administratora`,
     errorDuringInitialisation: `[${pluginName}] Błąd podczas inicjalizacji wykresu. Serwer może wymagać ponownego uruchomienia.`,
-    holdPeaks: `Zatrzymaj szczyty`,
+    holdPeaks: `Przytrzymaj szczyty`,
     smoothGraphEdges: `Wygładź krawędzie wykresu`,
     relativeFixedScale: `Skala względna/stała`,
     autoBaseline: `Automatyczna linia bazowa`,
@@ -203,7 +203,7 @@ const translations = {
     spectrumScanLocked: `Skenování je momentálně uzamčeno administrátorem`,
     errorDuringInitialisation: `[${pluginName}] Chyba při inicializaci grafu. Server může být nutné restartovat.`,
     holdPeaks: `Udržet vrcholy`,
-    smoothGraphEdges: `Hladit okraje grafu`,
+    smoothGraphEdges: `Vyhladit okraje grafu`,
     relativeFixedScale: `Relativní/Fixní měřítko`,
     autoBaseline: `Automatická základní čára`,
     performManualScan: `Provést ruční skenování`,
@@ -2622,7 +2622,7 @@ async function getCurrentAntenna(draw = true) {
                 // Hold peaks antenna localStorage
                 localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
                 if (isGraphOpen) {
-                    ToggleAddButton('hold-button',                  'Hold Peaks',               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',  'Hold peaks');
+                    ToggleAddButton('hold-button',                  getTranslatedText('holdPeaks'),               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',  'Hold peaks');
                     ButtonFadeManager.refresh(); // Called after a button redraw
                 }
                 if (typeof initTooltips === 'function') initTooltips();
