@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.4.0 by AAD
+    Spectrum Graph v1.4.1 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -7,7 +7,7 @@
 
 'use strict';
 
-const pluginVersion = '1.4.0';
+const pluginVersion = '1.4.1';
 
 const AUTO_RESTART_ON_CONNECTION_ERROR = true;
 const FORCE_FALLBACK = false;

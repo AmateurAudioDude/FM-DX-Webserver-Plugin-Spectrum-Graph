@@ -34,6 +34,11 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 > [!CAUTION]
 > Lowering the value of **`rescanDelay`** increases the risk of your server being overloaded with scan requests.
 
+v1.4.1
+------
+* Improve background blur and graph padding
+* Minor fixes
+
 v1.4.0
 ------
 * Added LW, MW, SW and OIRT band support with supported firmware (thanks to @Overland-DX and @HyperDX)

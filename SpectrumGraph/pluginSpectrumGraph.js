@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.4.0 by AAD
+    Spectrum Graph v1.4.1 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -23,22 +23,25 @@ const SPECTRUM_COLOR_STYLE = 'DEFAULT';         // 'DEFAULT', 'ACCURATE_4', 'ACC
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pluginVersion = '1.4.0';
-const pluginName = "Spectrum Graph";
-const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
-const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
-const pluginSetupOnlyNotify = false;
-const CHECK_FOR_UPDATES = true;
-
 // const advanced settings variables
 const ANTENNA_SCAN_NOTICE_TIMEOUT_SECONDS = 10;                             // Outdated antenna notify display timeout
 const ANTENNA_SCAN_NOTICE_INTERVAL_SECONDS = 180;                           // Outdated antenna notify display interval
+const RIGHT_EDGE_PADDING = 6.5;                                             // Reduces graph width in px from the canvas right edge
+const RIGHT_EDGE_SHIFT = 0.0;                                               // Shifts the whole graph in px from the canvas right
 const MARKER_TOLERANCE_PX = 3;                                              // Mouse position tolerance in pixels of marker selection
 const CAL_RF_LEVEL_OFFSET = 0.0;                                            // Overall signal calibration (offset for loss)
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0;     // Signal calibration (requires external hardware to set signal strength)
 const SCAN_COVERAGE_OPACITY = 0.2;                                          // Scanner plugin 'defaultScannerMode' opacity value
 const HIDE_ROTATOR_CONTAINER = false;                                       // Setting for PST Rotator plugin
 const DEFAULT_LANGUAGE = 'en';                                              // Default language (browser language setting overrides)
+
+// const plugin update checker variables
+const pluginVersion = '1.4.1';
+const pluginName = "Spectrum Graph";
+const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
+const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
+const pluginSetupOnlyNotify = false;
+const CHECK_FOR_UPDATES = true;
 
 // Language translations
 const translations = {
@@ -1929,7 +1932,6 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     // Locate the canvas and its parent container
     const canvas = document.getElementById('sdr-graph-button-container');
     if (canvas) {
-        canvas.style.backdropFilter = `blur(${BACKGROUND_BLUR_PIXELS}px)`;
         canvas.style.borderRadius = '8px';
         const canvasContainer = canvas;
         if (canvasContainer && canvasContainer.classList.contains('sdr-graph-button-container-main')) {
@@ -2964,6 +2966,7 @@ function initializeCanvasInteractions() {
         const rect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
+        const logicalMouseX = mouseX + RIGHT_EDGE_SHIFT; // Undo the drawing shift to compare against unshifted graph coordinates
 
         // Hide tooltip in resize area
         if (mouseY > rect.height - resizeEdge) {
@@ -2972,7 +2975,7 @@ function initializeCanvasInteractions() {
         }
 
         // Calculate frequency
-        const rawFreq = minFreq + (mouseX - xOffset) / xScale;
+        const rawFreq = minFreq + (logicalMouseX - xOffset) / xScale; // RIGHT_EDGE_SHIFT
 
         if (rawFreq < minFreq || rawFreq > minFreq + freqRange) {
             tooltip.style.visibility = 'hidden';
@@ -3080,20 +3083,20 @@ function initializeCanvasInteractions() {
 
             // Calculate position of circle
             const adjustedSignalValue = signalValue - minSig;
-            const circleX = xOffset + (freq - minFreq) * xScale; 
+            const circleX = xOffset + (freq - minFreq) * xScale - RIGHT_EDGE_SHIFT;
             const circleY = canvas.height - (Math.max(0, adjustedSignalValue) * yScale) - 20;
 
             // Draw circle at tip of the signal
             ctx.beginPath();
             ctx.arc(circleX, circleY, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = 'var(--color-5-transparent)';
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-5-transparent').trim();
             ctx.fill();
-            ctx.strokeStyle = 'var(--color-main-bright)';
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-main-bright').trim();
             ctx.lineWidth = 2;
             ctx.stroke();
 
             // Tooltip positioning
-            let tooltipX = ((xOffset + 10) + (closestPoint.freq - minFreq) * xScale) + canvasFullWidthOffset;
+            let tooltipX = ((xOffset + 10) + (closestPoint.freq - minFreq) * xScale - RIGHT_EDGE_SHIFT) + canvasFullWidthOffset;
             let tooltipY;
             if (!localStorageItem.isAutoBaseline) {
                 tooltipY = parseInt(canvas.height - 20 - (Math.max(0, signalValue) - minSig) * yScale); // If below 0 dBf
@@ -3134,12 +3137,13 @@ function initializeCanvasInteractions() {
         const rect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
+        const logicalMouseX = mouseX + RIGHT_EDGE_SHIFT; // Undo the drawing shift to compare against unshifted graph coordinates
 
         // Exclude bottom area from frequency selection
         if (mouseY > rect.height - resizeEdge) return;
 
         // Calculate frequency
-        const rawFreq = minFreq + (mouseX - xOffset) / xScale;
+        const rawFreq = minFreq + (logicalMouseX - xOffset) / xScale; // RIGHT_EDGE_SHIFT
 
         if (rawFreq < minFreq || rawFreq > minFreq + freqRange) return;
 
@@ -3275,6 +3279,10 @@ const canvas = document.createElement('canvas');
 // Set canvas attributes
 canvas.id = 'sdr-graph';
 canvas.position = 'relative';
+if (BACKGROUND_BLUR_PIXELS) {
+    canvas.style.backdropFilter = `blur(${BACKGROUND_BLUR_PIXELS}px)`;
+    canvas.style.webkitBackdropFilter = `blur(${BACKGROUND_BLUR_PIXELS}px)`;
+}
 
 function resizeCanvas() {
     getCurrentDimensions();
@@ -3376,8 +3384,9 @@ canvas.addEventListener('contextmenu', e => {
 
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
+    const logicalMouseX = mouseX + RIGHT_EDGE_SHIFT; // Undo the drawing shift to compare against unshifted graph coordinates
 
-    if (mouseX < xOffset) return;
+    if (logicalMouseX < xOffset) return; // RIGHT_EDGE_SHIFT
 
     let closestKey = null;
     let closestDist = Infinity;
@@ -3387,7 +3396,7 @@ canvas.addEventListener('contextmenu', e => {
         const freq = Number(freqStr);
         const x = xOffset + (freq - minFreqForMarkers) * xScaleForMarkers;
 
-        const dist = Math.abs(x - mouseX);
+        const dist = Math.abs(x - logicalMouseX); // RIGHT_EDGE_SHIFT
         if (dist < closestDist) {
             closestDist = dist;
             closestKey = freqStr;
@@ -3400,7 +3409,7 @@ canvas.addEventListener('contextmenu', e => {
         markedFreqs.delete(closestKey);
     } else {
         const freq =
-            minFreqForMarkers + (mouseX - xOffset) / xScaleForMarkers;
+            minFreqForMarkers + (logicalMouseX - xOffset) / xScaleForMarkers; // RIGHT_EDGE_SHIFT
 
         markedFreqs.add(freq.toFixed(2));
     }
@@ -3550,7 +3559,7 @@ function drawGraph() {
     if (maxFreq - minFreq <= 12) isDecimalMarkerRoundOff = false;
 
     // Determine frequency step dynamically
-    const freqRange = (maxFreq - minFreq).toFixed(2);
+    const freqRange = Number((maxFreq - minFreq).toFixed(2));
     const approxSpacing = width / freqRange; // Approx spacing per frequency
     let freqStep;
     if (approxSpacing < 20) {
@@ -3587,7 +3596,7 @@ function drawGraph() {
     }
 
     // Scaling factors
-    const xScale = (width - xOffset) / freqRange;
+    const xScale = (width - xOffset - RIGHT_EDGE_PADDING) / freqRange;
     const yScale = (height - 30) / maxSig;
 
     const colorText = getComputedStyle(document.documentElement).getPropertyValue('--color-5').trim();
@@ -3596,6 +3605,10 @@ function drawGraph() {
     // Used for right-click
     minFreqForMarkers = minFreq;
     xScaleForMarkers = xScale;
+
+    // Shift all subsequent drawing left, freeing space on the right without changing xScale
+    ctx.save();
+    if (RIGHT_EDGE_SHIFT) ctx.translate(-RIGHT_EDGE_SHIFT, 0);
 
     // Draw background
     if (!BORDERLESS_THEME) {
@@ -3731,7 +3744,7 @@ function drawGraph() {
     for (let sig of labels) {
         const y = Math.round(height - 20 - (sig - 0.001) * yScale) - 0.5;
         ctx.moveTo(xOffset, y);
-        ctx.lineTo(width, y);
+        ctx.lineTo(width - RIGHT_EDGE_PADDING, y);
     }
 
     // Draw all lines in one stroke call to prevent overlaps
@@ -3931,14 +3944,14 @@ function drawGraph() {
 
             // Draw a semi-transparent red area to the top
             ctx.fillStyle = `rgba(226, 61, 1, ${ScannerLimiterOpacity})`;
-            ctx.fillRect(xOffset, 8, width - xOffset, yPositionLimiterValue - 8);
+            ctx.fillRect(xOffset, 8, width - RIGHT_EDGE_PADDING - xOffset, yPositionLimiterValue - 8);
 
             // Draw a contrasting red line
             ctx.strokeStyle = 'rgba(226, 61, 1, 0.8)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(xOffset, yPositionLimiterValue);
-            ctx.lineTo(width, yPositionLimiterValue);
+            ctx.lineTo(width - RIGHT_EDGE_PADDING, yPositionLimiterValue);
             ctx.stroke();
 
             // Write the SpectrumLimiterValue below the line
@@ -3957,14 +3970,14 @@ function drawGraph() {
 
             // Draw a semi-transparent blue area to the bottom
             ctx.fillStyle = `rgba(4, 56, 215, ${ScannerLimiterOpacity})`;
-            ctx.fillRect(xOffset, yPositionScannerSensitivityValue, width - xOffset, height - 20 - yPositionScannerSensitivityValue);
+            ctx.fillRect(xOffset, yPositionScannerSensitivityValue, width - RIGHT_EDGE_PADDING - xOffset, height - 20 - yPositionScannerSensitivityValue);
 
             // Draw a contrasting blue line
             ctx.strokeStyle = 'rgba(4, 56, 215, 0.8)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(xOffset, yPositionScannerSensitivityValue);
-            ctx.lineTo(width, yPositionScannerSensitivityValue);
+            ctx.lineTo(width - RIGHT_EDGE_PADDING, yPositionScannerSensitivityValue);
             ctx.stroke();
 
             // Write the Sensitivity value above the line
@@ -4050,7 +4063,7 @@ function drawGraph() {
 
     ctx.beginPath();
     ctx.moveTo((xOffset - 0.5), height - 19.5); // X-axis
-    ctx.lineTo(width + 0.5, height - 19.5);
+    ctx.lineTo(width - RIGHT_EDGE_PADDING + 0.5, height - 19.5);
     ctx.moveTo((xOffset - 0.5), 9); // Y-axis
     ctx.lineTo((xOffset - 0.5), height - 19.5);
     ctx.stroke();
@@ -4096,6 +4109,8 @@ function drawGraph() {
         ctx.lineCap = 'butt';
         ctx.lineJoin = 'miter';
     }
+
+    ctx.restore(); // RIGHT_EDGE_SHIFT
 
     graphImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
