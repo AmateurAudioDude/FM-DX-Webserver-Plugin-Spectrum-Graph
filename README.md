@@ -37,6 +37,7 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 v1.4.1
 ------
 * Improve background blur and graph padding
+* Fix for S-units/unknown units compatibility
 * Minor fixes
 
 v1.4.0
