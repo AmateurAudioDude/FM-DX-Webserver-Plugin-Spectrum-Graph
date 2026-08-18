@@ -1343,6 +1343,12 @@ function signalUnits() {
             xSigOffset = 32;
             sigDesc = 'dBm';
             break;
+        case 'sunits':
+            sigOffset = 0;
+            xOffset = 44;
+            xSigOffset = 20;
+            sigDesc = 'S-units';
+            break;
         default:
             sigOffset = 0;
             xOffset = 30;
@@ -3064,7 +3070,9 @@ function initializeCanvasInteractions() {
 
             // Calculate tooltip content
             const freqText = freq < 30.0 ? `${freq.toFixed(3)} MHz` : freq < fmLowerLimitClient ? `${freq.toFixed(2)} MHz` : `${freq.toFixed(1)} MHz`; // AM scan
-            const signalText = `, ${Math.round(signalValue.toFixed(2) - sigOffset).toFixed(0)} ${sigDesc}`;
+            const signalText = (localStorage.getItem('signalUnit') === 'sunits' && typeof window.dbfToSUnitText === 'function')
+                ? `, ${window.dbfToSUnitText(signalValue, freq)}`
+                : `, ${Math.round(signalValue.toFixed(2) - sigOffset).toFixed(0)} ${sigDesc}`;
             const originalSignalValueTooltip = Math.round(originalSignalValue.toFixed(2) - sigOffset).toFixed(0);
 
             // Style HTML
@@ -3693,9 +3701,17 @@ function drawGraph() {
             if (sig && tempDbuvSig == 0) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 6.5, y + 3);
             if (sig && tempDbuvSig < 0 && tempDbuvSig > -10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) + 1.5, y + 3);
             if (sig && tempDbuvSig <= -10) ctx.fillText(tempDbuvSig, (xOffset - xSigOffset) - 5.5, y + 3);
-        } else if (signalText === 'dbf') {
+        } else if (signalText === 'sunits' && typeof window.dbfToSUnitText === 'function') {
+            if (sig) {
+                const label = window.dbfToSUnitText((sig - sigOffset) + minSig, (minFreq + maxFreq) / 2);
+                const prevAlign = ctx.textAlign;
+                ctx.textAlign = 'right';
+                ctx.fillText(label, xOffset - 5, y + 3);
+                ctx.textAlign = prevAlign;
+            }
+        } else {
             let tempDbfSig = ((sig - sigOffset) + minSig).toFixed(0);
-            // dBf
+            // dBf/S-units or unknown
             if (tempDbfSig == -0) tempDbfSig = 0;
             if (sig && tempDbfSig >= 10 && tempDbfSig < 100) ctx.fillText(tempDbfSig, (xOffset - xSigOffset), y + 3);
             if (sig && tempDbfSig >= 100) ctx.fillText(tempDbfSig, (xOffset - xSigOffset) - 6.5, y + 3);
@@ -3725,8 +3741,14 @@ function drawGraph() {
             if (drawLabelMin == 0) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 5.5, yScaleFixed + 3);
             if (drawLabelMin < 0 && drawLabelMin > -10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 1.5, yScaleFixed + 3);
             if (drawLabelMin <= -10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) - 5.5, yScaleFixed + 3);
-        } else if (signalText === 'dbf') {
-            // dBf
+        } else if (signalText === 'sunits' && typeof window.dbfToSUnitText === 'function') {
+            const label = window.dbfToSUnitText(drawLabelMin, (minFreq + maxFreq) / 2);
+            const prevAlign = ctx.textAlign;
+            ctx.textAlign = 'right';
+            ctx.fillText(label, xOffset - 5, yScaleFixed + 3);
+            ctx.textAlign = prevAlign;
+        } else {
+            // dBf/S-units or unknown
             if (drawLabelMin >= 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset), yScaleFixed + 3);
             if (drawLabelMin > 0 && drawLabelMin < 10) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 6.5, yScaleFixed + 3);
             if (drawLabelMin == 0) ctx.fillText(parseInt(drawLabelMin), (xOffset - xSigOffset) + 5.5, yScaleFixed + 3);
