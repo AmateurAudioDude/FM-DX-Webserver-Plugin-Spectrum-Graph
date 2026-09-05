@@ -29,6 +29,8 @@ const ANTENNA_SCAN_NOTICE_INTERVAL_SECONDS = 180;                           // O
 const RIGHT_EDGE_PADDING = 6.5;                                             // Reduces graph width in px from the canvas right edge
 const RIGHT_EDGE_SHIFT = 0.0;                                               // Shifts the whole graph in px from the canvas right
 const MARKER_TOLERANCE_PX = 3;                                              // Mouse position tolerance in pixels of marker selection
+const TOOLTIP_WRAP_CHECK_DELAY = 300;                                       // In milliseconds, must match or exceed core's own ~300ms tooltip creation delay
+const TOOLTIP_LINE_HEIGHT = 35;                                             // In px, height of a single-line tooltip
 const CAL_RF_LEVEL_OFFSET = 0.0;                                            // Overall signal calibration (offset for loss)
 const CAL90000 = 0.0, CAL95500 = 0.0, CAL100500 = 0.0, CAL105500 = 0.0;     // Signal calibration (requires external hardware to set signal strength)
 const SCAN_COVERAGE_OPACITY = 0.2;                                          // Scanner plugin 'defaultScannerMode' opacity value
@@ -1377,6 +1379,27 @@ function applyFadeEffect(buttonId, opacity, scale) {
     }
 }
 
+// Flags a button's tooltip with a class, only if it actually wrapped onto multiple lines
+function markWrappedTooltip(button, className) {
+    button.addEventListener('mouseenter', () => {
+        setTimeout(() => {
+            const tooltipEl = document.querySelector('.tooltip-wrapper .tooltiptext');
+            if (!tooltipEl) return;
+
+            // Guard against a still-fading leftover tooltip from a different, no-longer-hovered button
+            if (tooltipEl.textContent.trim() !== (button.getAttribute('data-tooltip') || '').trim()) return;
+
+            const range = document.createRange();
+            range.selectNodeContents(tooltipEl);
+            if (range.getClientRects().length > 1) {
+                tooltipEl.classList.add(className);
+                // Lift it clear of the button by however much wrapping grew it beyond a single line
+                tooltipEl.style.transform = `translateY(calc(-100% + ${TOOLTIP_LINE_HEIGHT}px))`;
+            }
+        }, TOOLTIP_WRAP_CHECK_DELAY);
+    });
+}
+
 /* ==================================================
                     CREATE BUTTONS
    ================================================== */
@@ -1579,6 +1602,7 @@ function ScanButton(customRangesOnly, applyFade = true) {
     spectrumButton.setAttribute('data-tooltip', getTranslatedText('performManualScan'));
     spectrumButton.innerHTML = '<span><i class="fa-solid fa-rotate"></i></span>';
     spectrumButton.addEventListener('contextmenu', e => e.preventDefault());
+    markWrappedTooltip(spectrumButton, 'spectrum-tooltip-wrapped');
 
     // Add event listener
     let canSendMessage = true;
@@ -1674,6 +1698,10 @@ function ScanButton(customRangesOnly, applyFade = true) {
         filter: grayscale(1);
         opacity: 0.5 !important;
     }
+
+    .spectrum-tooltip-wrapped {
+        /*z-index: 7;*/ /* Default is 1000, 7 might be used to display beneath buttons, but not needed if tooltip displays correctly above it */
+    }
 `;
 
     const styleElement = document.createElement('style');
@@ -1742,7 +1770,12 @@ function ScanButton(customRangesOnly, applyFade = true) {
       sdrGraphCSS.removeEventListener('mouseenter', handleMouseEnter);
     };
 
-    sdrGraphCSS.addEventListener('mouseenter', handleMouseEnter);
+    if (sdrGraphCSS.matches(':hover')) {
+        // If mouse was already over the canvas before listener existed
+        handleMouseEnter();
+    } else {
+        sdrGraphCSS.addEventListener('mouseenter', handleMouseEnter);
+    }
 
     // Attach button handler to canvas
     ButtonFadeManager.attach('.canvas-container');
@@ -1911,6 +1944,7 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
     toggleButton.setAttribute('data-tooltip', `${Tooltip}`);
     toggleButton.innerHTML = `<span><i class="fa-solid fa-${FontAwesomeIcon}"></i></span>`;
     toggleButton.addEventListener('contextmenu', e => e.preventDefault());
+    markWrappedTooltip(toggleButton, 'spectrum-tooltip-wrapped');
 
     // Button state (off by default)
     let isOn = false;
@@ -2200,6 +2234,7 @@ function injectAdminSettingsButton() {
     btn.setAttribute('data-tooltip', 'Spectrum Graph Settings');
     btn.innerHTML = '<span><i class="fa-solid fa-gear"></i></span>';
     btn.addEventListener('contextmenu', e => e.preventDefault());
+    markWrappedTooltip(btn, 'spectrum-tooltip-wrapped');
     btn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
