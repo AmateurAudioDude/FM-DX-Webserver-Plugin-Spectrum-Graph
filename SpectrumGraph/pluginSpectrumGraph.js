@@ -1909,10 +1909,11 @@ async function setupSendSocket() {
                         pendingFinalSigArray = null;
                         progressiveSweepDisplayFreq = null;
                         progressiveStepFreq = 0;
+                        progressiveScanLatestFreq = null;
                         progressiveScanBounds = (Number.isFinite(data.scanLowerFreq) && Number.isFinite(data.scanUpperFreq))
                             ? { lower: data.scanLowerFreq, upper: data.scanUpperFreq }
                             : null;
-                        sigArray = getOldScanTail(progressiveScanBounds?.lower);
+                        sigArray = getOldScanTail(progressiveScanLatestFreq);
 
                         if (!graphError && isGraphOpen && data.hasOwnProperty('scanSuccess') && data.scanSuccess) {
                             isScanInitiated = true;
