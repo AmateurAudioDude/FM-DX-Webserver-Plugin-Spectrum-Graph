@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.4.1 by AAD
+    Spectrum Graph v1.5.0 beta by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -7,7 +7,7 @@
 
 'use strict';
 
-const pluginVersion = '1.4.1';
+const pluginVersion = '1.5.0';
 
 const AUTO_RESTART_ON_CONNECTION_ERROR = true;
 const FORCE_FALLBACK = false;
@@ -121,6 +121,7 @@ try {
 // const variables
 const debug = false;
 const validScans = ['scan', 'scan-0', 'scan-1', 'scan-2'];
+const VALID_SWEEP_LINES = ['none', 'line', 'line-dot', 'dot', 'glow'];
 const webserverPort = config.webserver.webserverPort || 8080;
 const externalWsUrl = `ws://127.0.0.1:${webserverPort}`;  // Used for fallback IP, but not for connections
 
@@ -190,7 +191,7 @@ const checkStrictAdmin = (req, res, next) => {
 function customRouter() {
     endpointsRouter.get('/spectrum-graph-plugin/api/config', (req, res) => {
         const isAdmin = (req.session && req.session.isAdminAuthenticated) || false;
-        const response = { isAdmin, config: { fmLowerLimit } };
+        const response = { isAdmin, config: { fmLowerLimit, progressiveScanEnabled, progressiveScanSweepLine } };
         if (isAdmin) {
             response.config = {
                 fmLowerLimit,
@@ -203,6 +204,10 @@ function customRouter() {
                 logLocalCommands,
                 clearGraphOnScan,
                 definedBands,
+                progressiveScanEnabled,
+                progressiveScanSweepLine,
+                progressiveScanBatchMs,
+                progressiveScanReferenceClients,
             };
         }
         res.json(response);
@@ -226,6 +231,10 @@ function customRouter() {
                                         Number.isFinite(b.start) && Number.isFinite(b.end) &&
                                         Number.isFinite(b.step) && Number.isFinite(b.bw))
                                         ? body.definedBands : definedBands,
+                progressiveScanEnabled:   typeof body.progressiveScanEnabled === 'boolean' ? body.progressiveScanEnabled : progressiveScanEnabled,
+                progressiveScanSweepLine: VALID_SWEEP_LINES.includes(body.progressiveScanSweepLine) ? body.progressiveScanSweepLine : progressiveScanSweepLine,
+                progressiveScanBatchMs:   !isNaN(Number(body.progressiveScanBatchMs)) ? Math.min(2000, Math.max(20, Number(body.progressiveScanBatchMs))) : progressiveScanBatchMs,
+                progressiveScanReferenceClients: !isNaN(Number(body.progressiveScanReferenceClients)) ? Math.min(100, Math.max(1, Number(body.progressiveScanReferenceClients))) : progressiveScanReferenceClients,
             };
             suppressNextFileWatchReload = true;
             saveUpdatedConfig(updated);
@@ -241,6 +250,7 @@ function customRouter() {
         const cfg = {
             rescanDelay, tuningRange, tuningStepSize, tuningBandwidth,
             fmLowerLimit, customRanges, warnIncompleteData, logLocalCommands, clearGraphOnScan, definedBands,
+            progressiveScanEnabled, progressiveScanSweepLine, progressiveScanBatchMs, progressiveScanReferenceClients,
         };
 
         const bwOptions = [
@@ -402,6 +412,35 @@ function customRouter() {
                 <div class="field-control"><input type="number" id="fmLowerLimit" value="${cfg.fmLowerLimit}" min="64" max="108" step="0.1"></div>
             </div>
         </div>
+        <div class="section-label">Progressive Scan (Experimental)</div>
+        <div class="field-group">
+            <div class="field-row">
+                <div><div class="field-label">Enable Progressive Scan</div><div class="field-hint">Fill in the graph live as the scan sweeps the band, instead of waiting for it to finish.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="progressiveScanEnabled" ${cfg.progressiveScanEnabled ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Sweep Line</div><div class="field-hint">Marks where the scan is currently up to.</div></div>
+                <div class="field-control">
+                    <select id="progressiveScanSweepLine">
+                        <option value="none"${cfg.progressiveScanSweepLine === 'none' ? ' selected' : ''}>None</option>
+                        <option value="line"${cfg.progressiveScanSweepLine === 'line' ? ' selected' : ''}>Line</option>
+                        <option value="line-dot"${cfg.progressiveScanSweepLine === 'line-dot' ? ' selected' : ''}>Line + Dot</option>
+                        <option value="dot"${cfg.progressiveScanSweepLine === 'dot' ? ' selected' : ''}>Dot</option>
+                        <option value="glow"${cfg.progressiveScanSweepLine === 'glow' ? ' selected' : ''}>Glow</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Batch Interval</div><div class="field-hint">How often (ms) newly-scanned points are sent to clients. Lower costs more CPU per connected client but is closer to real-time, higher is cheaper on CPU but delays the sweep further behind.</div></div>
+                <div class="field-control"><input type="number" id="progressiveScanBatchMs" value="${cfg.progressiveScanBatchMs}" min="20" max="2000" step="10"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Reference Connection Count</div><div class="field-hint">Batch Interval above is calibrated for up to this many open <b>/data_plugins</b> connections. Beyond it, the interval stretches proportionally so total server load stays roughly flat rather than growing with each one. Note: <b>/data_plugins</b> is shared across plugins, so one browser tab can open several connections to it - open a tab and check your server logs/network console to see the actual number before tuning this.</div></div>
+                <div class="field-control"><input type="number" id="progressiveScanReferenceClients" value="${cfg.progressiveScanReferenceClients}" min="1" max="100" step="1"></div>
+            </div>
+        </div>
         <div class="section-label">Diagnostics</div>
         <div class="field-group">
             <div class="field-row">
@@ -452,7 +491,7 @@ function customRouter() {
 <script>
     const bwOptionsHtml = \`${bwOptionsHtml}\`;
     let bands = ${bandsJson};
-    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, definedBands: defaultConfig.definedBands })};
+    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, definedBands: defaultConfig.definedBands, progressiveScanEnabled: defaultConfig.progressiveScanEnabled, progressiveScanSweepLine: defaultConfig.progressiveScanSweepLine, progressiveScanBatchMs: defaultConfig.progressiveScanBatchMs, progressiveScanReferenceClients: defaultConfig.progressiveScanReferenceClients })};
 
     function renderBands() {
         const tbody = document.getElementById('bandsBody');
@@ -518,6 +557,10 @@ function customRouter() {
         document.getElementById('clearGraphOnScan').checked   = DEFAULTS.clearGraphOnScan;
         document.getElementById('warnIncompleteData').checked = DEFAULTS.warnIncompleteData;
         document.getElementById('logLocalCommands').checked   = DEFAULTS.logLocalCommands;
+        document.getElementById('progressiveScanEnabled').checked  = DEFAULTS.progressiveScanEnabled;
+        document.getElementById('progressiveScanSweepLine').value  = DEFAULTS.progressiveScanSweepLine;
+        document.getElementById('progressiveScanBatchMs').value    = DEFAULTS.progressiveScanBatchMs;
+        document.getElementById('progressiveScanReferenceClients').value = DEFAULTS.progressiveScanReferenceClients;
         bands = DEFAULTS.definedBands.map(b => ({ ...b }));
         renderBands();
         showToast('Defaults restored. Click Save Settings to apply.', false);
@@ -537,6 +580,10 @@ function customRouter() {
             logLocalCommands:   document.getElementById('logLocalCommands').checked,
             clearGraphOnScan:   document.getElementById('clearGraphOnScan').checked,
             definedBands:       bands,
+            progressiveScanEnabled:   document.getElementById('progressiveScanEnabled').checked,
+            progressiveScanSweepLine: document.getElementById('progressiveScanSweepLine').value,
+            progressiveScanBatchMs:   Number(document.getElementById('progressiveScanBatchMs').value),
+            progressiveScanReferenceClients: Number(document.getElementById('progressiveScanReferenceClients').value),
         };
         try {
             const res = await fetch('/spectrum-graph-plugin/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -598,6 +645,10 @@ let customRanges = ""; // Custom ranges
 let warnIncompleteData = false; // Warn about incomplete data
 let logLocalCommands = true; // Log locally sent commands
 let clearGraphOnScan = true; // Clear graph data when a new scan begins
+let progressiveScanEnabled = true; // Broadcast scan points live as they arrive
+let progressiveScanSweepLine = 'line'; // 'none' | 'line' | 'line-dot' | 'dot' | 'glow'
+let progressiveScanBatchMs = 100;
+let progressiveScanReferenceClients = 100;
 
 const DEFAULT_DEFINED_BANDS = [
     { name: 'LW',   start: 144,   end: 351,   step: 1,  bw: 3  },
@@ -632,10 +683,14 @@ const defaultConfig = {
     logLocalCommands: true,
     clearGraphOnScan: true,
     definedBands: DEFAULT_DEFINED_BANDS,
+    progressiveScanEnabled: true,
+    progressiveScanSweepLine: 'line',
+    progressiveScanBatchMs: 100,
+    progressiveScanReferenceClients: 100,
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'warnIncompleteData', 'logLocalCommands', 'clearGraphOnScan', 'definedBands'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'warnIncompleteData', 'logLocalCommands', 'clearGraphOnScan', 'progressiveScanEnabled', 'progressiveScanSweepLine', 'progressiveScanBatchMs', 'progressiveScanReferenceClients', 'definedBands'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -682,6 +737,10 @@ function loadConfigFile(isReloaded) {
             warnIncompleteData = typeof config.warnIncompleteData === 'boolean' ? config.warnIncompleteData : defaultConfig.warnIncompleteData;
             logLocalCommands = typeof config.logLocalCommands === 'boolean' ? config.logLocalCommands : defaultConfig.logLocalCommands;
             clearGraphOnScan = typeof config.clearGraphOnScan === 'boolean' ? config.clearGraphOnScan : defaultConfig.clearGraphOnScan;
+            progressiveScanEnabled = typeof config.progressiveScanEnabled === 'boolean' ? config.progressiveScanEnabled : defaultConfig.progressiveScanEnabled;
+            progressiveScanSweepLine = VALID_SWEEP_LINES.includes(config.progressiveScanSweepLine) ? config.progressiveScanSweepLine : defaultConfig.progressiveScanSweepLine;
+            progressiveScanBatchMs = !isNaN(Number(config.progressiveScanBatchMs)) ? Math.min(2000, Math.max(20, Number(config.progressiveScanBatchMs))) : defaultConfig.progressiveScanBatchMs;
+            progressiveScanReferenceClients = !isNaN(Number(config.progressiveScanReferenceClients)) ? Math.min(100, Math.max(1, Number(config.progressiveScanReferenceClients))) : defaultConfig.progressiveScanReferenceClients;
 
             if (Array.isArray(config.definedBands) && config.definedBands.length > 0 &&
                 config.definedBands.every(b => b && typeof b.name === 'string' &&
@@ -693,6 +752,7 @@ function loadConfigFile(isReloaded) {
             }
 
             structureCustomRanges();
+            updateSpectrumData({ progressiveScanEnabled, progressiveScanSweepLine, progressiveScanBatchMs, tuningStepSize, tuningBandwidth });
 
             // Save the updated config if there were any modifications
             if (configModified) {
@@ -1149,6 +1209,40 @@ if (useHooks && wss && pluginsWss) {
 let interceptedUData = null;
 let interceptedZData = null;
 
+let liveScanBuffer = '';
+let liveScanCapturing = false;
+let pendingScanPoints = [];
+let scanBatchTimer = null;
+let throttleWarnedThisScan = false;
+
+const PROGRESSIVE_SCAN_MAX_BATCH_MS = 5000; // Hard ceiling regardless of client count
+
+function scheduleScanBatchFlush() {
+    if (scanBatchTimer) return;
+
+    // Above the reference count, stretch the interval proportionally to keep total bandwidth roughly flat
+    const clientCount = pluginClients.size;
+    const isThrottled = clientCount > progressiveScanReferenceClients;
+    let effectiveBatchMs = isThrottled
+        ? progressiveScanBatchMs * (clientCount / progressiveScanReferenceClients)
+        : progressiveScanBatchMs;
+    effectiveBatchMs = Math.min(effectiveBatchMs, PROGRESSIVE_SCAN_MAX_BATCH_MS);
+
+    if (isThrottled && !throttleWarnedThisScan) {
+        throttleWarnedThisScan = true;
+        logWarn(`[${pluginName}] ${clientCount} /data_plugins connections open, batch interval stretched to ${Math.round(effectiveBatchMs)}ms`);
+    }
+
+    scanBatchTimer = setTimeout(flushPendingScanPoints, effectiveBatchMs);
+}
+
+function flushPendingScanPoints() {
+    scanBatchTimer = null;
+    if (pendingScanPoints.length === 0) return;
+    broadcastToPluginClients(JSON.stringify({ type: 'sigArrayPoints', value: pendingScanPoints }));
+    pendingScanPoints = [];
+}
+
 // Wrapper to intercept 'U' data
 const originalHandleData = datahandlerReceived.handleData;
 
@@ -1272,6 +1366,64 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
     // Call original handleData function
     originalHandleData(wss, receivedData, rdsWss);
 };
+
+const progressiveScanAvailable = !!(pluginsApi && typeof pluginsApi.onRawSerialData === 'function');
+updateSpectrumData({ progressiveScanAvailable });
+
+if (progressiveScanAvailable) {
+    pluginsApi.onRawSerialData((data) => {
+        try {
+            if (progressiveScanEnabled && isScanRunning) {
+                liveScanBuffer += data.toString();
+
+                if (!liveScanCapturing) {
+                    const uMatch = liveScanBuffer.match(/(?:^|\n)U/);
+                    if (uMatch) {
+                        liveScanCapturing = true;
+                        liveScanBuffer = liveScanBuffer.slice(uMatch.index + uMatch[0].length);
+                    } else if (liveScanBuffer.length > 4096) {
+                        liveScanBuffer = liveScanBuffer.slice(-256); // avoid unbounded growth from unrelated traffic
+                    }
+                }
+
+                if (liveScanCapturing) {
+                    const newlineIdx = liveScanBuffer.indexOf('\n');
+                    const scanEnded = newlineIdx !== -1;
+                    const workingStr = scanEnded ? liveScanBuffer.slice(0, newlineIdx) : liveScanBuffer;
+                    const parts = workingStr.split(',');
+                    const completeParts = scanEnded ? parts : parts.slice(0, -1);
+
+                    for (const part of completeParts) {
+                        const [freqStr, sigStr] = part.split('=');
+                        const freq = Number(freqStr);
+                        const sig = Number(sigStr);
+                        if (!Number.isFinite(freq) || !Number.isFinite(sig)) continue;
+
+                        pendingScanPoints.push({ freq: (freq / 1000).toFixed(3), sig: sig.toFixed(1) });
+                    }
+
+                    liveScanBuffer = scanEnded ? '' : (parts[parts.length - 1] || '');
+                    if (scanEnded) {
+                        liveScanCapturing = false;
+                        if (scanBatchTimer) clearTimeout(scanBatchTimer);
+                        flushPendingScanPoints();
+                    } else if (pendingScanPoints.length) {
+                        scheduleScanBatchFlush();
+                    }
+                }
+            } else if (liveScanBuffer || liveScanCapturing) {
+                liveScanBuffer = '';
+                liveScanCapturing = false;
+            }
+        } catch (error) {
+            logError(`[${pluginName}] Progressive scan parsing failed, skipping:`, error.message);
+            liveScanBuffer = '';
+            liveScanCapturing = false;
+        }
+    });
+} else {
+    logWarn(`[${pluginName}] plugins_api.onRawSerialData unavailable, progressive scan disabled, update FM-DX Webserver`);
+}
 
 // Configure antennas
 let antennaCurrent; // Will remain 'undefined' if antenna switch is disabled
@@ -1706,6 +1858,10 @@ async function startScan(command) {
             activeBandwidth = rangeUpperScaled <= fmLowerLimitScaled ? 56 : tuningBandwidth;
         }
 
+        // Used below for the scan-success message's reported bounds
+        tuningLowerLimitScan = rangeLowerScaled;
+        tuningUpperLimitScan = rangeUpperScaled;
+
         sendCommandToClient(`Sa${rangeLowerScaled}`);
         sendCommandToClient(`Sb${rangeUpperScaled}`);
         sendCommandToClient(`Sc${activeStepSize}`);
@@ -1753,7 +1909,9 @@ async function startScan(command) {
     // Notify clients scan was initiated
     const messageClient = {
         type: 'spectrum-graph-scan-success',
-        scanSuccess: true
+        scanSuccess: true,
+        scanLowerFreq: tuningLowerLimitScan / SCALE,
+        scanUpperFreq: tuningUpperLimitScan / SCALE
     };
 
     sendSigArray(null, {}, messageClient);
@@ -1769,6 +1927,12 @@ async function startScan(command) {
     interceptedUData = null;
     interceptedZData = null;
     sigArray = [];
+    liveScanBuffer = '';
+    liveScanCapturing = false;
+    if (scanBatchTimer) clearTimeout(scanBatchTimer);
+    scanBatchTimer = null;
+    pendingScanPoints = [];
+    throttleWarnedThisScan = false;
 
     // Wait for U value using async
     async function waitForUValue(timeout = 8000 + (isFirstRun ? 22000 : 0), interval = 10) {

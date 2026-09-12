@@ -34,6 +34,14 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 > [!CAUTION]
 > Lowering the value of **`rescanDelay`** increases the risk of your server being overloaded with scan requests.
 
+v1.5.0 (beta)
+-------------
+* Added experimental Progressive Scan, graph updates live as a scan sweeps
+* Added right-click menu overhaul with Language, Settings and About submenus
+* Added "Open on Page Load", "Hide Extra Buttons" and "Color Style" settings
+* Improved mobile menu and tooltip behaviour
+* Minor fixes
+
 v1.4.1
 ------
 * Improve background blur and graph padding

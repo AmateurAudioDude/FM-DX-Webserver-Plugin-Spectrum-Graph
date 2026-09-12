@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.4.1 by AAD
+    Spectrum Graph v1.5.0 beta by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -16,6 +16,7 @@ const DECIMAL_MARKER_ROUND_OFF = true;          // Round frequency markers to th
 const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/relative or clamp outline
 const ALLOW_ABOVE_CANVAS = true;                // Displays a button to display above signal graph if there is room
 const CORRECT_TOOLTIP_PEAKS = true;             // Corrects inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps
+const DISPLAY_SCANNING_STATUS = true;           // Displays a spinning icon during a scan update
 const LAST_ANTENNA_SCAN_NOTICE_MINUTES = 30;    // Periodically displays a notice if last scan of any antenna is outdated
 const MW_TUNING_STEP = 0;                       // MW tuning step in kHz (9 or 10). Set to 0 to use 'Enhanced Tuning' plugin preference
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
@@ -290,6 +291,7 @@ let outlinePointsSavePermission = false;
 let fmButton = null;
 let customRanges = [];
 let sigArray = [];
+
 let minSig; // Graph value
 let maxSig; // Graph value
 let minSigOutline; // Outline value
@@ -317,6 +319,8 @@ let currentLanguage = DEFAULT_LANGUAGE || 'en';
 let tuningEnabled = true;           // Affects all clients
 let tuningEnabledLocally = true;    // Affects local client
 let fmLowerLimitClient = 86; // Updated by data.fmLowerLimit
+let tuningStepSizeClient = 50; // kHz, updated by data.tuningStepSize
+let tuningBandwidthClient = 56; // kHz, updated by data.tuningBandwidth
 
 // For outdated antenna scan notice
 let isLastUpdateOutdated = false;
@@ -337,6 +341,177 @@ let ScannerSensitivity = 0;
 let ScannerSpectrumLimiterValue = 0; 
 let ScannerLimiterOpacity = SCAN_COVERAGE_OPACITY;
 
+// let variables & functions (Progressive Scan)
+let progressiveScanBounds = null;
+let lastCompletedScanBounds = null;
+let previousSigArray = [];
+let progressiveSigArray = [];
+let progressiveScanEnabledClient = false;
+let progressiveScanAvailableServer = false;
+let progressiveScanMissedStart = false;
+let progressiveScanSweepLineClient = 'line'; // 'none' | 'line' | 'line-dot' | 'dot' | 'glow'
+let progressiveScanBatchMsClient = 100;
+let progressiveScanLatestFreq = null;
+let hasCompletedScanData = false;
+
+let PROGRESSIVE_REVEAL_RATE_SMOOTHING = 0.3;
+let progressiveSmoothedRevealRate = 0;
+let progressiveRevealQueue = [];
+let progressiveRevealActive = false;
+let progressiveRevealCredit = 0;
+let progressiveLastBatchArrivalTime = 0;
+let progressiveLastRevealTick = 0;
+let pendingFinalSigArray = null;
+let progressiveSweepDisplayFreq = null;
+let progressiveStepFreq = 0;
+let progressiveLastDrawTime = 0;
+let progressiveRedrawIntervalMs = 16.66;
+let refreshRateDetectionStarted = false;
+
+function detectRefreshRate(sampleFrames = 120, binMs = 0.05) {
+    return new Promise(resolve => {
+        const samples = [];
+        let last = performance.now();
+        function tick(now) {
+            samples.push(now - last);
+            last = now;
+            if (samples.length < sampleFrames) {
+                requestAnimationFrame(tick);
+            } else {
+                const bins = new Map();
+                for (const s of samples) {
+                    const bin = Math.round(s / binMs) * binMs;
+                    bins.set(bin, (bins.get(bin) || 0) + 1);
+                }
+                let modeMs = 0, modeCount = 0;
+                for (const [bin, count] of bins) {
+                    if (count > modeCount) { modeMs = bin; modeCount = count; }
+                }
+                resolve(Math.round(1000 / modeMs));
+            }
+        }
+        requestAnimationFrame(tick);
+    });
+}
+
+const COMMON_REFRESH_RATES = [60, 75, 120, 144, 165, 170, 240, 360, 390, 480, 500, 540, 1000];
+
+function snapToCommonRefreshRate(hz) {
+    let closest = hz;
+    let closestDiff = Infinity;
+    for (const rate of COMMON_REFRESH_RATES) {
+        const diff = Math.abs(hz - rate);
+        if (diff <= 3 && diff < closestDiff) {
+            closestDiff = diff;
+            closest = rate;
+        }
+    }
+    return closest;
+}
+
+function ensureRefreshRateDetected() {
+    if (refreshRateDetectionStarted) return;
+    refreshRateDetectionStarted = true;
+    detectRefreshRate().then(rawHz => {
+        const hz = snapToCommonRefreshRate(rawHz);
+        const divisor = Math.ceil(hz / 100); // Keeps the effective redraw rate at or below 100fps
+        progressiveRedrawIntervalMs = Math.round((divisor / hz) * 1000);
+        logInfo(`Detected ${rawHz}Hz display (snapped to ${hz}Hz), capping progressive redraw to ${Math.round(hz / divisor)}fps`);
+    });
+}
+
+function progressiveRevealTick(now) {
+    const dt = now - progressiveLastRevealTick;
+    progressiveLastRevealTick = now;
+
+    if (progressiveRevealQueue.length > 0) {
+        // Fractional credit + Math.floor, not Math.ceil - avoids rounding tiny fractions up to 1 every frame
+        progressiveRevealCredit += progressiveSmoothedRevealRate * dt;
+        const toReveal = Math.min(Math.floor(progressiveRevealCredit), progressiveRevealQueue.length);
+
+        if (toReveal > 0) {
+            progressiveRevealCredit -= toReveal;
+            const chunk = progressiveRevealQueue.splice(0, toReveal);
+            const newFreq = Number(chunk[chunk.length - 1].freq);
+            if (progressiveScanLatestFreq !== null) {
+                progressiveStepFreq = (newFreq - progressiveScanLatestFreq) / chunk.length;
+            }
+            progressiveSigArray.push(...chunk);
+            progressiveScanLatestFreq = newFreq;
+            if (progressiveSweepDisplayFreq === null) progressiveSweepDisplayFreq = newFreq;
+        }
+    } else {
+        progressiveRevealCredit = 0; // Don't let leftover credit carry into an unrelated future batch
+        // Rate is left as-is so the glide coasts through a brief empty-queue gap instead of stalling
+    }
+
+    if (progressiveScanLatestFreq !== null) {
+        const freqPerMs = progressiveSmoothedRevealRate * progressiveStepFreq;
+        progressiveSweepDisplayFreq = Math.min(
+            Math.max(progressiveSweepDisplayFreq + freqPerMs * dt, progressiveScanLatestFreq),
+            progressiveScanLatestFreq + progressiveStepFreq
+        );
+    }
+
+    if (now - progressiveLastDrawTime >= progressiveRedrawIntervalMs) {
+        const newSigArray = progressiveSigArray.concat(getOldScanTail(progressiveScanLatestFreq));
+        if (newSigArray.length > 0) {
+            progressiveLastDrawTime = now;
+            sigArray = newSigArray;
+            if (isGraphOpen) drawGraph();
+        }
+    }
+
+    if (progressiveRevealQueue.length === 0 && pendingFinalSigArray) {
+        const finalValue = pendingFinalSigArray;
+        pendingFinalSigArray = null;
+        applyFinalSigArray(finalValue);
+    }
+
+    if (progressiveScanBounds) {
+        requestAnimationFrame(progressiveRevealTick);
+    } else {
+        progressiveRevealActive = false;
+    }
+}
+
+function applyFinalSigArray(value) {
+    isUpdating = false;
+    lastCompletedScanBounds = progressiveScanBounds; // Capture before it's cleared, so a later rescan of the same range can tell
+    progressiveScanBounds = null;
+    progressiveScanLatestFreq = null;
+    progressiveSweepDisplayFreq = null;
+    progressiveRevealCredit = 0;
+    progressiveSmoothedRevealRate = 0;
+    progressiveLastBatchArrivalTime = 0;
+    if (!graphError && isGraphOpen) insertUpdateText(false, 5, true);
+    sigArray = value;
+    hasCompletedScanData = true;
+
+    initializeGraph(undefined, true).then(() => {
+        if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
+    });
+}
+
+// Strict '<': an adjacent old scan can share this exact boundary frequency
+function getOldScanTail(afterFreq) {
+    if (!progressiveScanBounds) return [];
+    const sameUpperEdge = lastCompletedScanBounds && lastCompletedScanBounds.upper === progressiveScanBounds.upper;
+    return previousSigArray.filter(p => {
+        const f = Number(p.freq);
+        return f > afterFreq && (sameUpperEdge ? f <= progressiveScanBounds.upper : f < progressiveScanBounds.upper);
+    });
+}
+
+function calibratedSig(freqMHz, sig) {
+    const _f = parseFloat(freqMHz);
+    const adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
+    let s = parseFloat(sig);
+    if (CAL_RF_LEVEL_OFFSET) s = s + CAL_RF_LEVEL_OFFSET;
+    if (s > 15) s += adjustment * ((s <= 20 ? (s - 15) / 5 : 1));
+    return s;
+}
+
 // localStorage variables
 //localStorageItem.enableHold located in getCurrentAntenna()
 //localStorageItem.highlightedFreqs located in displayHighlightedFreqs()
@@ -346,6 +521,14 @@ localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphF
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
 localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';     // Move above signal graph canvas
 localStorageItem.disableNoiseFloorLabel = localStorage.getItem('enableSpectrumHideNoiseFloorLabel') === 'true';     // Display noise floor signal label
+localStorageItem.progressiveScanDisabled = localStorage.getItem('enableSpectrumGraphDisableProgressiveScan') === 'true';
+localStorageItem.displayScanningStatus = localStorage.getItem('enableSpectrumGraphDisplayScanningStatus') !== null
+    ? localStorage.getItem('enableSpectrumGraphDisplayScanningStatus') === 'true'
+    : DISPLAY_SCANNING_STATUS;
+localStorageItem.spectrumColorStyle = localStorage.getItem('enableSpectrumGraphColorStyle') || SPECTRUM_COLOR_STYLE;
+localStorageItem.sweepLineOverride = localStorage.getItem('enableSpectrumGraphSweepLineOverride') || null;
+localStorageItem.autoOpenOnLoad = localStorage.getItem('enableSpectrumGraphAutoOpenOnLoad') === 'true';
+localStorageItem.hideExtraButtons = localStorage.getItem('enableSpectrumGraphHideExtraButtons') === 'true';
 
 /* ==================================================
                     ERROR HANDLING
@@ -440,8 +623,146 @@ function getTranslatedText(key) {
 }
 
 /* ==================================================
-                    LANGUAGE MENU
+                EXTENDED CONTEXT MENU
    ================================================== */
+
+function createLanguageMenuItems() {
+    return Object.entries(translations).map(([lang, data]) => ({
+        label: data.__name || lang,
+        checked: lang === currentLanguage,
+        onClick: () => {
+            currentLanguage = lang;
+            localStorage.setItem(localStorageItem.currentLanguage, currentLanguage);
+            logInfo('Language changed to:', currentLanguage);
+
+            if (isSpectrumOn) displaySdrGraph(false);
+        }
+    }));
+}
+
+function createColorStyleMenuItems() {
+    const options = [
+        { value: 'DEFAULT', label: 'Default' },
+        { value: 'ACCURATE_4', label: 'Accurate 4' },
+        { value: 'ACCURATE_7', label: 'Accurate 7' },
+        { value: 'BALANCED', label: 'Balanced' },
+        { value: 'WARM_TOP', label: 'Warm Top' },
+        { value: 'SMOOTH', label: 'Smooth' }
+    ];
+
+    return options.map(opt => ({
+        label: opt.label,
+        checked: localStorageItem.spectrumColorStyle === opt.value,
+        keepOpen: true,
+        onClick: () => {
+            localStorageItem.spectrumColorStyle = opt.value;
+            localStorage.setItem('enableSpectrumGraphColorStyle', opt.value);
+            logInfo('Spectrum color style changed to:', opt.value);
+            if (isSpectrumOn) displaySdrGraph(false);
+        }
+    }));
+}
+
+function createSweepLineMenuItems() {
+    const options = [
+        { value: 'none', label: 'None' },
+        { value: 'line', label: 'Line' },
+        { value: 'line-dot', label: 'Line + Dot' },
+        { value: 'dot', label: 'Dot' },
+        { value: 'glow', label: 'Glow' }
+    ];
+
+    const effective = localStorageItem.sweepLineOverride || progressiveScanSweepLineClient;
+
+    return options.map(opt => ({
+        label: opt.label,
+        checked: effective === opt.value,
+        keepOpen: true,
+        onClick: () => {
+            localStorageItem.sweepLineOverride = opt.value;
+            localStorage.setItem('enableSpectrumGraphSweepLineOverride', opt.value);
+            logInfo('Sweep line override:', opt.value);
+        }
+    }));
+}
+
+function createSettingsMenuItems() {
+    const items = [];
+
+    // Client-side overrides only, does not change the admin's server-side settings
+    items.push({
+        label: 'Open on Page Load',
+        checked: localStorageItem.autoOpenOnLoad,
+        keepOpen: true,
+        onClick: () => {
+            localStorageItem.autoOpenOnLoad = !localStorageItem.autoOpenOnLoad;
+            localStorage.setItem('enableSpectrumGraphAutoOpenOnLoad', localStorageItem.autoOpenOnLoad.toString());
+        }
+    });
+
+    items.push({
+        label: 'Hide Extra Buttons',
+        checked: localStorageItem.hideExtraButtons,
+        keepOpen: true,
+        onClick: () => {
+            localStorageItem.hideExtraButtons = !localStorageItem.hideExtraButtons;
+            localStorage.setItem('enableSpectrumGraphHideExtraButtons', localStorageItem.hideExtraButtons.toString());
+            applyExtraButtonsVisibility();
+        }
+    });
+
+    items.push({
+        label: 'Show Scanning Status',
+        checked: localStorageItem.displayScanningStatus,
+        keepOpen: true,
+        onClick: () => {
+            localStorageItem.displayScanningStatus = !localStorageItem.displayScanningStatus;
+            localStorage.setItem('enableSpectrumGraphDisplayScanningStatus', localStorageItem.displayScanningStatus.toString());
+        }
+    });
+
+    if (progressiveScanEnabledClient && progressiveScanAvailableServer) {
+        items.push({
+            label: 'Progressive Scan',
+            checked: !localStorageItem.progressiveScanDisabled,
+            keepOpen: true,
+            onClick: () => {
+                localStorageItem.progressiveScanDisabled = !localStorageItem.progressiveScanDisabled;
+                localStorage.setItem('enableSpectrumGraphDisableProgressiveScan', localStorageItem.progressiveScanDisabled.toString());
+                logInfo('Progressive scan override:', localStorageItem.progressiveScanDisabled ? 'disabled' : 'enabled');
+            }
+        });
+
+        items.push({
+            label: 'Sweep Line',
+            submenu: createSweepLineMenuItems
+        });
+    }
+
+    items.push({
+        label: 'Color Style',
+        submenu: createColorStyleMenuItems
+    });
+
+    return items;
+}
+
+function createAboutMenuItems() {
+    return [
+        { label: 'Version', value: pluginVersion, keepOpen: true },
+        { label: 'FM Step Size', value: `${tuningStepSizeClient} kHz`, keepOpen: true },
+        { label: 'FM Bandwidth', value: `${tuningBandwidthClient} kHz`, keepOpen: true }
+    ];
+}
+
+function createRootMenuItems() {
+    return [
+        { label: 'Language', submenu: createLanguageMenuItems },
+        { label: 'Settings', submenu: createSettingsMenuItems },
+        { label: 'About', submenu: createAboutMenuItems }
+    ];
+}
+
 function createLanguageContextMenu(x, y) {
     getCurrentLanguage();
 
@@ -464,101 +785,140 @@ function createLanguageContextMenu(x, y) {
 
     $('.language-context-menu').remove();
 
-    const menu = $('<div class="language-context-menu bg-color-4"></div>');
+    const openMenus = [];
 
-    Object.entries(translations).forEach(([lang, data]) => {
-        const label = data.__name || lang;
-
-        menu.append(`
-            <div data-lang="${lang}">
-                ${label}
-            </div>
-        `);
-    });
-
-    menu.hide();
-    $('body').append(menu);
-    menu.fadeIn(200);
-
-    // Clamp to viewport
-    const menuWidth = 120;
-    const menuHeight = 200;
-    x = Math.min(x, window.innerWidth - menuWidth);
-    y = Math.min(y, window.innerHeight - menuHeight);
-
-    menu.css({
-        position: 'fixed',
-        top: y,
-        left: x,
-        background: 'var(--color-1)',
-        border: '1px solid var(--color-2)',
-        borderRadius: '6px',
-        padding: '4px 0',
-        zIndex: 10,
-        color: 'var(--color-5)',
-        fontSize: '13px',
-        minWidth: `${menuWidth}px`,
-        boxShadow: '0 6px 18px rgba(0,0,0,0.35)'
-    });
-
-    menu.find('div').each(function () {
-        const lang = $(this).data('lang');
-
-        $(this).css({
-            padding: '6px 12px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            userSelect: 'none'
-        });
-
-        // Active language
-        if (lang === currentLanguage) {
-            $(this)
-                .addClass('active-language')
-                .append('<span>\u2713</span>');
+    function closeFrom(level) {
+        while (openMenus.length > level) {
+            const closing = openMenus.pop();
+            clearTimeout(closing.timer);
+            closing.menu.remove();
         }
-    }).hover(
-        function () { $(this).addClass('bg-color-2'); },
-        function () { $(this).removeClass('bg-color-2'); }
-    );
-
-    // Selection
-    menu.on('mouseup', 'div', function (e) {
-        if (e.which !== 1) return;
-
-        currentLanguage = $(this).data('lang');
-        localStorage.setItem(localStorageItem.currentLanguage, currentLanguage);
-
-        logInfo('Language changed to:', currentLanguage);
-        closeMenu();
-
-        // Redraw
-        if (isSpectrumOn) displaySdrGraph(false);
-
-        const SpectrumButton = $('#spectrum-graph-button');
-        // Update HTML attribute and jQuery cache
-        SpectrumButton.attr('data-tooltip', getTranslatedText('spectrumGraph'));
-        SpectrumButton.data('tooltip', getTranslatedText('spectrumGraph'));
-    });
-
-    function closeMenu() {
-        menu.animate({ opacity: 0 }, 200, () => {
-            menu.remove();
-        });
-        $(document).off('keydown.languageMenu');
     }
 
-    // Close on outside click
+    function closeAll() {
+        closeFrom(0);
+        $(document).off('keydown.languageMenu click.languageMenu');
+    }
+
+    function renderMenu(itemsBuilder, level, px, py, parentRow) {
+        closeFrom(level);
+
+        const items = itemsBuilder();
+        const menu = $('<div class="language-context-menu bg-color-4"></div>');
+
+        menu.hide();
+        $('body').append(menu);
+        menu.fadeIn(150);
+
+        const menuWidth = 180;
+        const menuHeight = Math.min(300, window.innerHeight - 20);
+
+        let left, top;
+        if (parentRow) {
+            const rect = parentRow.getBoundingClientRect();
+            left = rect.right - 2;
+            if (left + menuWidth > window.innerWidth) left = rect.left - menuWidth + 2;
+            top = Math.min(rect.top - 4, window.innerHeight - menuHeight);
+        } else {
+            left = Math.min(px, window.innerWidth - menuWidth);
+            top = Math.min(py, window.innerHeight - menuHeight);
+        }
+
+        menu.css({
+            position: 'fixed',
+            top,
+            left,
+            background: 'var(--color-1)',
+            border: '1px solid var(--color-2)',
+            borderRadius: '6px',
+            padding: '4px 0',
+            zIndex: 12,
+            color: 'var(--color-5)',
+            fontSize: '13px',
+            minWidth: `${menuWidth}px`,
+            boxShadow: '0 6px 18px rgba(0,0,0,0.35)'
+        });
+
+        const entry = { menu, timer: null };
+        openMenus[level] = entry;
+        openMenus.length = level + 1;
+
+        items.forEach(item => {
+            const hasSubmenu = typeof item.submenu === 'function';
+            const row = $('<div></div>').text(item.label);
+
+            row.css({
+                padding: '6px 12px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '16px',
+                userSelect: 'none'
+            });
+
+            if (item.checked) {
+                row.addClass('active-language').append('<span>\u2713</span>');
+            } else if (hasSubmenu) {
+                row.append('<span>\u25b8</span>');
+            } else if (item.value !== undefined) {
+                row.append($('<span></span>').text(item.value).css({ opacity: 0.6, fontSize: '12px' }));
+                row.css('cursor', 'default');
+            }
+
+            row.hover(
+                function () {
+                    $(this).addClass('bg-color-2');
+                    clearTimeout(entry.timer);
+                    if (hasSubmenu) {
+                        entry.timer = setTimeout(() => {
+                            renderMenu(item.submenu, level + 1, null, null, row[0]);
+                        }, 150);
+                    } else {
+                        closeFrom(level + 1);
+                    }
+                },
+                function () {
+                    $(this).removeClass('bg-color-2');
+                    if (hasSubmenu) clearTimeout(entry.timer);
+                }
+            );
+
+            // Also opens submenus directly, since touch doesn't reliably trigger the hover above
+            row.on('mouseup', function (e) {
+                if (e.which !== 1) return;
+
+                if (hasSubmenu) {
+                    clearTimeout(entry.timer);
+                    renderMenu(item.submenu, level + 1, null, null, row[0]);
+                    return;
+                }
+
+                item.onClick?.();
+
+                if (item.keepOpen) {
+                    renderMenu(itemsBuilder, level, px, py, parentRow); // Refresh checkmark, stay open
+                } else {
+                    closeAll();
+                }
+            });
+
+            menu.append(row);
+        });
+    }
+
+    renderMenu(createRootMenuItems, 0, x, y, null);
+
     setTimeout(() => {
-        $(document).one('click', closeMenu);
+        $(document).on('click.languageMenu', function (e) {
+            const insideAnyMenu = openMenus.some(entry => entry && entry.menu && entry.menu[0].contains(e.target));
+            if (!insideAnyMenu) closeAll();
+        });
     }, 0);
 
-    // Close on Esc
     $(document).on('keydown.languageMenu', function (e) {
         if (e.key === 'Escape') {
-            closeMenu();
+            closeAll();
         }
     });
 }
@@ -620,6 +980,31 @@ function setupEarlyClickHandler(buttonId) {
     buttonObserver.observe(document.body, { childList: true, subtree: true });
 }
 
+// If required, defer until the tab is visible
+function autoOpenGraphOnceVisible() {
+    isAlreadyLaunched = true;
+
+    const fire = () => {
+        setTimeout(() => {
+            if (!isGraphOpen) toggleSpectrum();
+            isLaunchedEarly = true;
+            setTimeout(() => {
+                isLaunchedEarly = false;
+            }, 500);
+        }, 800);
+    };
+
+    if (document.hidden) {
+        document.addEventListener('visibilitychange', function onVisible() {
+            if (document.hidden) return;
+            document.removeEventListener('visibilitychange', onVisible);
+            fire();
+        });
+    } else {
+        fire();
+    }
+}
+
 // Function to check if plugin is fully initialised
 function checkPluginInitialization(buttonId) {
     const maxWaitTime = 60000; // Maximum wait time
@@ -627,6 +1012,7 @@ function checkPluginInitialization(buttonId) {
     let elapsedTime = 0;
 
     const initCheckInterval = setInterval(() => {
+        if (isPluginInitialized) return; // Already handled, guard against a queued tick still firing after clearInterval
         elapsedTime += checkInterval;
 
         // Check if both WebSocket and initial data are ready
@@ -677,6 +1063,8 @@ function checkPluginInitialization(buttonId) {
                         isLaunchedEarly = false;
                     }, 500);
                 }, 800);
+            } else if (localStorageItem.autoOpenOnLoad && !isGraphOpen && !(window.innerWidth < 480 && window.innerHeight > window.innerWidth)) {
+                autoOpenGraphOnceVisible();
             }
         } else if (elapsedTime >= maxWaitTime) {
             // Timeout, enable anyway
@@ -725,6 +1113,8 @@ function checkPluginInitialization(buttonId) {
                         isLaunchedEarly = false;
                     }, 500);
                 }, 800);
+            } else if (localStorageItem.autoOpenOnLoad && !isGraphOpen && !(window.innerWidth < 480 && window.innerHeight > window.innerWidth)) {
+                autoOpenGraphOnceVisible();
             }
         }
     }, checkInterval);
@@ -822,13 +1212,71 @@ function createButton(buttonId) {
                 observer.disconnect();
 
                 // Create the button
-                addIconToPluginPanel(buttonId, "Spectrum", "solid", "chart-area", getTranslatedText('spectrumGraph'));
+                addIconToPluginPanel(buttonId, "Spectrum", "solid", "chart-area", "");
                 functionFound = true;
 
-                // Add right-click listener
+                // Custom tooltip
+                const spectrumButtonEl = document.getElementById(buttonId);
+                let spectrumTip = null;
+                let spectrumTipTimer = null;
+                const hideSpectrumTip = () => {
+                    clearTimeout(spectrumTipTimer);
+                    if (spectrumTip) {
+                        const tip = spectrumTip;
+                        spectrumTip = null;
+                        tip.style.opacity = '0';
+                        setTimeout(() => tip.remove(), 300);
+                    }
+                };
+                const showSpectrumTip = (lines) => {
+                    spectrumTip = document.createElement('div');
+                    spectrumTip.style.cssText = 'position:fixed;z-index:99998;background:var(--color-2,#333);border:2px solid var(--color-3,#666);border-radius:15px;padding:5px 25px;pointer-events:none;white-space:nowrap;font-size:14px;color:var(--color-text,#eee);text-align:center;opacity:0;transition:opacity 0.3s ease;';
+                    lines.forEach((text, i) => {
+                        const line = document.createElement('div');
+                        line.textContent = text;
+                        if (i > 0) line.style.cssText = 'font-size:11px;opacity:0.6;margin-top:2px;';
+                        spectrumTip.appendChild(line);
+                    });
+                    document.body.appendChild(spectrumTip);
+                    const rect = spectrumButtonEl.getBoundingClientRect();
+                    const tipRect = spectrumTip.getBoundingClientRect();
+                    let left = rect.left + rect.width / 2 - tipRect.width / 2;
+                    if (left + tipRect.width > window.innerWidth - 8) left = window.innerWidth - tipRect.width - 8;
+                    if (left < 8) left = 8;
+                    spectrumTip.style.left = left + 'px';
+                    spectrumTip.style.top = (rect.bottom + 10) + 'px';
+                    requestAnimationFrame(() => { requestAnimationFrame(() => { if (spectrumTip) spectrumTip.style.opacity = '1'; }); });
+                };
+
+                if (spectrumButtonEl) {
+                    if (typeof $ === 'function') $(spectrumButtonEl).off('mouseenter mouseleave');
+
+                    spectrumButtonEl.addEventListener('mouseenter', () => {
+                        if (!window.matchMedia('(hover: hover)').matches) return;
+                        spectrumTipTimer = setTimeout(() => {
+                            const stillTooLow = window.innerWidth < 480 && window.innerHeight > window.innerWidth;
+                            showSpectrumTip(stillTooLow
+                                ? [getTranslatedText('resolutionTooLowToDisplay')]
+                                : [getTranslatedText('spectrumGraph'), 'Right-click for display options']);
+                        }, 400);
+                    });
+                    spectrumButtonEl.addEventListener('mouseleave', hideSpectrumTip);
+
+                    spectrumButtonEl.addEventListener('click', () => {
+                        hideSpectrumTip();
+
+                        const stillTooLow = window.innerWidth < 480 && window.innerHeight > window.innerWidth;
+                        if (stillTooLow) {
+                            showSpectrumTip([getTranslatedText('resolutionTooLowToDisplay')]);
+                            spectrumTipTimer = setTimeout(hideSpectrumTip, 3000);
+                        }
+                    });
+                }
+
                 document.addEventListener('contextmenu', function (e) {
                     if (!e.target.closest(`#${buttonId}`)) return;
                     e.preventDefault();
+                    hideSpectrumTip();
                     createLanguageContextMenu(e.clientX, e.clientY);
                 });
 
@@ -1206,6 +1654,21 @@ async function setupSendSocket() {
                         // Disable mouse tuning 'tuningEnabled' located in 'insertUpdateText' to not affect admins while server is locked
 
                         isUpdating = true;
+                        if (progressiveScanEnabledClient) ensureRefreshRateDetected();
+                        progressiveScanMissedStart = false; // Seeing a genuine scan-success means we're caught up from here on
+                        previousSigArray = (hasCompletedScanData && Array.isArray(sigArray)) ? sigArray : [];
+                        progressiveSigArray = [];
+                        progressiveRevealQueue = [];
+                        progressiveRevealCredit = 0;
+                        progressiveSmoothedRevealRate = 0;
+                        progressiveLastBatchArrivalTime = 0;
+                        pendingFinalSigArray = null;
+                        progressiveSweepDisplayFreq = null;
+                        progressiveStepFreq = 0;
+                        progressiveScanBounds = (Number.isFinite(data.scanLowerFreq) && Number.isFinite(data.scanUpperFreq))
+                            ? { lower: data.scanLowerFreq, upper: data.scanUpperFreq }
+                            : null;
+                        sigArray = getOldScanTail(progressiveScanBounds?.lower);
 
                         if (!graphError && isGraphOpen && data.hasOwnProperty('scanSuccess') && data.scanSuccess) {
                             isScanInitiated = true;
@@ -1216,6 +1679,7 @@ async function setupSendSocket() {
                                 true,
                                 ScannerIsScanning ? 56 : 0,
                                 true,
+                                true,
                                 true
                             );
                         }
@@ -1225,28 +1689,16 @@ async function setupSendSocket() {
 
                     // Handle 'sigArray' data
                     if (data.type === 'sigArray') {
-                        isUpdating = false;
-                        if (!graphError && isGraphOpen) insertUpdateText(false, 5, true);
                         logInfo(`Received sigArray.`);
-                        sigArray = data.value;
-                        if (sigArray.length > 0) {
-                            // Signal calibration
-                            if (CAL90000 || CAL95500 || CAL100500 || CAL105500) {
-                                sigArray.forEach(item => {
-                                    const _f = parseFloat(item.freq);
-                                    let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
-                                    let sig = parseFloat(item.sig);
-                                    if (CAL_RF_LEVEL_OFFSET) sig = sig + CAL_RF_LEVEL_OFFSET;
-                                    if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
-                                    item.sig = sig.toFixed(2);
-                                });
-                            }
 
-                            if (CAL90000 || CAL95500 || CAL100500 || CAL105500) logInfo(`Calibrated sigArray.`);
+                        if (data.value.length > 0 && (CAL90000 || CAL95500 || CAL100500 || CAL105500)) {
+                            data.value.forEach(item => {
+                                item.sig = calibratedSig(item.freq, item.sig).toFixed(2);
+                            });
+                            logInfo(`Calibrated sigArray.`);
                         }
                         if (debug) {
                             if (Array.isArray(data.value)) {
-                                // Process sigArray
                                 data.value.forEach(item => {
                                     console.log(`freq: ${item.freq}, sig: ${item.sig}`);
                                 });
@@ -1255,10 +1707,39 @@ async function setupSendSocket() {
                             }
                         }
 
-                        // Wait for initializeGraph before drawing
-                        initializeGraph(undefined, true).then(() => {
-                            if (isGraphOpen) setTimeout(drawGraph, drawGraphDelay);
-                        });
+                        // Defer if the local reveal animation is still catching up, so it isn't cut short
+                        if (progressiveRevealQueue.length > 0) {
+                            pendingFinalSigArray = data.value;
+                        } else {
+                            applyFinalSigArray(data.value);
+                        }
+                    }
+
+                    if (data.type === 'sigArrayPoints' && Array.isArray(data.value) && progressiveScanEnabledClient && !progressiveScanMissedStart && !localStorageItem.progressiveScanDisabled) {
+                        for (const point of data.value) {
+                            if (CAL90000 || CAL95500 || CAL100500 || CAL105500) {
+                                point.sig = calibratedSig(point.freq, point.sig).toFixed(2);
+                            }
+                        }
+
+                        const now = performance.now();
+                        const targetMs = progressiveScanBatchMsClient || 100;
+                        const sinceLastBatch = progressiveLastBatchArrivalTime ? (now - progressiveLastBatchArrivalTime) : targetMs;
+                        progressiveLastBatchArrivalTime = now;
+
+                        progressiveRevealQueue.push(...data.value);
+
+                        // Rate is updated only here, once per batch, then held constant across every frame until the next batch
+                        const batchRatePerMs = data.value.length / Math.max(sinceLastBatch, 5);
+                        progressiveSmoothedRevealRate = progressiveSmoothedRevealRate === 0
+                            ? batchRatePerMs
+                            : progressiveSmoothedRevealRate + (batchRatePerMs - progressiveSmoothedRevealRate) * PROGRESSIVE_REVEAL_RATE_SMOOTHING;
+
+                        if (!progressiveRevealActive) {
+                            progressiveRevealActive = true;
+                            progressiveLastRevealTick = now;
+                            requestAnimationFrame(progressiveRevealTick);
+                        }
                     }
 
                     // Scanner plugin code by Highpoint2000
@@ -1379,6 +1860,37 @@ function applyFadeEffect(buttonId, opacity, scale) {
     }
 }
 
+// Fades the extra button row in/out
+let extraButtonsFadeTimeout = null;
+function applyExtraButtonsVisibility() {
+    clearTimeout(extraButtonsFadeTimeout); // Cancel still-pending fade from rapid previous toggle
+    const hide = localStorageItem.hideExtraButtons;
+
+    if (hide) {
+        EXTRA_BUTTON_IDS.forEach(id => applyFadeEffect(id, 0, 0.96));
+        applyFadeEffect('spectrum-graph-admin-btn', 0, 1);
+        extraButtonsFadeTimeout = setTimeout(() => {
+            EXTRA_BUTTON_IDS.forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.style.display = 'none';
+            });
+            const adminBtn = document.getElementById('spectrum-graph-admin-btn');
+            if (adminBtn) adminBtn.remove();
+        }, 400);
+    } else {
+        EXTRA_BUTTON_IDS.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.style.transition = 'none';
+                btn.style.transform = 'scale(1)';
+                btn.style.display = '';
+            }
+        });
+        extraButtonsFadeTimeout = setTimeout(() => ButtonFadeManager.refresh(), 40);
+        if (isAdmin) injectAdminSettingsButton();
+    }
+}
+
 // Flags a button's tooltip with a class, only if it actually wrapped onto multiple lines
 function markWrappedTooltip(button, className) {
     button.addEventListener('mouseenter', () => {
@@ -1404,6 +1916,8 @@ function markWrappedTooltip(button, className) {
                     CREATE BUTTONS
    ================================================== */
 
+const EXTRA_BUTTON_IDS = ['hold-button', 'smoothing-on-off-button', 'fixed-dynamic-on-off-button', 'auto-baseline-on-off-button', 'draw-above-canvas'];
+
 // Functions to assist button fade when mouse leaves canvas
 const ButtonFadeManager = {
     isHoveringCanvas: false,
@@ -1415,7 +1929,9 @@ const ButtonFadeManager = {
     fadeDelayInitial: 30000, // ms
 
     getButtons() {
-        return document.querySelectorAll('#sdr-graph-button-container button:not(#spectrum-graph-admin-btn)');
+        const buttons = document.querySelectorAll('#sdr-graph-button-container button:not(#spectrum-graph-admin-btn)');
+        if (!localStorageItem.hideExtraButtons) return buttons;
+        return Array.from(buttons).filter(button => !EXTRA_BUTTON_IDS.includes(button.id));
     },
 
     updateButtonOpacity() {
@@ -1441,6 +1957,8 @@ const ButtonFadeManager = {
                     button.style.opacity = button.classList.contains('button-on') ? '0.6' : '0.5';
                 });
             } else {
+                buttons.forEach(button => (button.style.opacity = '0.8'));
+
                 // Schedule fade if not already pending
                 if (!this.fadeTimeout) {
                     this.fadeTimeout = setTimeout(() => {
@@ -1731,7 +2249,7 @@ function ScanButton(customRangesOnly, applyFade = true) {
             sdrCanvasDrawAboveCanvas.style.display = 'none';
         }
     }
-    injectAdminSettingsButton();
+    if (!localStorageItem.hideExtraButtons) injectAdminSettingsButton();
     if (typeof initTooltips === 'function') initTooltips();
     if (updateText) insertUpdateText(updateText);
 
@@ -1753,6 +2271,17 @@ function ScanButton(customRangesOnly, applyFade = true) {
             applyFadeEffect('auto-baseline-on-off-button', 0.8, 1);
             applyFadeEffect('draw-above-canvas', 0.8, 1);
         }, 40);
+    }
+
+    // Enforce "Hide Extra Buttons" on top of the fade above
+    if (localStorageItem.hideExtraButtons) {
+        EXTRA_BUTTON_IDS.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.style.opacity = '0';
+                btn.style.display = 'none';
+            }
+        });
     }
 
     // Fade all buttons on canvas hover
@@ -2041,7 +2570,7 @@ function ToggleAddButton(Id, Tooltip, FontAwesomeIcon, localStorageVariable, loc
    ================================================== */
 
 // Function to display update text
-function insertUpdateText(updateText, timeout = 10, forceFadeOut = false, isHtml = false, leftMargin, isInstant, onlyIfScanning) {
+function insertUpdateText(updateText, timeout = 10, forceFadeOut = false, isHtml = false, leftMargin, isInstant, onlyIfScanning, isScanningStatusNotice) {
     if (!isGraphOpen) return;
 
     // Remove and fade out existing text if forced
@@ -2162,8 +2691,10 @@ function insertUpdateText(updateText, timeout = 10, forceFadeOut = false, isHtml
                             isUpdating = false;
                         }, 5000);
                     }
-                    updateTextElement.style.opacity = '1';
-                    updateTextElement.style.transform = 'scale(1.02)';
+                    if (!isScanningStatusNotice || localStorageItem.displayScanningStatus) {
+                        updateTextElement.style.opacity = '1';
+                        updateTextElement.style.transform = 'scale(1.02)';
+                    }
                 }
 
             }, ((isFirstMessage && !isHtml) || isInstant ? 80 : 400));
@@ -2260,6 +2791,14 @@ function injectAdminSettingsButton() {
             if (b) { b.style.opacity = '0'; b.style.pointerEvents = 'none'; }
         });
     }
+
+    // No mouseenter fires for a hover that already happened before this button existed
+    if (graphArea && graphArea.matches(':hover')) {
+        setTimeout(() => {
+            btn.style.opacity = '0.8';
+            btn.style.pointerEvents = 'auto';
+        }, 40);
+    }
 }
 
 /* ==================================================
@@ -2328,6 +2867,7 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
 
         const response = await fetch(apiPath, {
             method: 'GET',
+            cache: 'no-store',
             headers: {
                 'X-Plugin-Name': 'SpectrumGraphPlugin'
             }
@@ -2357,6 +2897,9 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
 
         if (data.scanStatus) scanStatus = data.scanStatus;
 
+        // Page loaded while a scan was already running, skip progressive handling
+        if (data.scanStatus === 'scanning') progressiveScanMissedStart = true;
+
         // --- FM button data ---
         if (data && typeof data.fmRangeName === 'string' && data.fmRangeName.trim() !== '' &&
             typeof data.fmRangeFreq === 'string' && data.fmRangeFreq.trim() !== '') {
@@ -2368,6 +2911,26 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
 
         if (data && typeof data.fmLowerLimit === 'number' && data.fmLowerLimit > 0) {
             fmLowerLimitClient = data.fmLowerLimit;
+        }
+        if (data && typeof data.tuningStepSize === 'number' && data.tuningStepSize > 0) {
+            tuningStepSizeClient = data.tuningStepSize;
+        }
+        if (data && typeof data.tuningBandwidth === 'number' && data.tuningBandwidth > 0) {
+            tuningBandwidthClient = data.tuningBandwidth;
+        }
+
+        if (data && typeof data.progressiveScanEnabled === 'boolean') {
+            progressiveScanEnabledClient = data.progressiveScanEnabled;
+            if (progressiveScanEnabledClient) ensureRefreshRateDetected();
+        }
+        if (data && typeof data.progressiveScanAvailable === 'boolean') {
+            progressiveScanAvailableServer = data.progressiveScanAvailable;
+        }
+        if (data && typeof data.progressiveScanSweepLine === 'string') {
+            progressiveScanSweepLineClient = data.progressiveScanSweepLine;
+        }
+        if (data && typeof data.progressiveScanBatchMs === 'number') {
+            progressiveScanBatchMsClient = data.progressiveScanBatchMs;
         }
 
         // --- Custom ranges array ---
@@ -2472,11 +3035,7 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
                     let [freq, sig] = pair.split('=');
                     // Signal calibration
                     if (CAL90000 || CAL95500 || CAL100500 || CAL105500) {
-                        const _f = parseFloat(freq) / 1000;
-                        let adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
-                        sig = parseFloat(sig);
-                        if (CAL_RF_LEVEL_OFFSET) sig = sig + CAL_RF_LEVEL_OFFSET;
-                        if (sig > 15) sig += adjustment * ((sig <= 20 ? (sig - 15) / 5 : 1));
+                        sig = calibratedSig(freq / 1000, sig);
                     }
 
                     return { freq: (freq / 1000).toFixed(3), sig: parseFloat(sig).toFixed(1) };
@@ -2495,6 +3054,12 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
             }
 
             dataError = false;
+            hasCompletedScanData = true;
+            // No scan-success message produced this data
+            if (Array.isArray(sigArray) && sigArray.length > 0) {
+                const freqs = sigArray.map(d => Number(d.freq));
+                lastCompletedScanBounds = { lower: Math.min(...freqs), upper: Math.max(...freqs) };
+            }
         } else {
             getDummyData();
             logInfo(`Found no data available at page load.`);
@@ -2632,6 +3197,7 @@ function getDummyData() {
         sigArray = [{ freq: `${dummyFreqStart}`, sig: "0.00" }];
         sigArray.push({ freq: (dummyFreqStart + dummyFreqEnd) / 2, sig: "0.00" });
         sigArray.push({ freq: `${dummyFreqEnd}`, sig: "0.00" });
+        hasCompletedScanData = false;
     }
 }
 
@@ -2666,6 +3232,13 @@ async function getCurrentAntenna(draw = true) {
                 localStorageItem.enableHold = localStorage.getItem(`enableSpectrumGraphHoldPeaks${currentAntenna}`) === 'true';     // Holds peaks
                 if (isGraphOpen) {
                     ToggleAddButton('hold-button',                  getTranslatedText('holdPeaks'),               'pause',            'enableHold',           `HoldPeaks${currentAntenna}`,   '56',  'Hold peaks');
+                    if (localStorageItem.hideExtraButtons) {
+                        const holdBtn = document.getElementById('hold-button');
+                        if (holdBtn) {
+                            holdBtn.style.opacity = '0';
+                            holdBtn.style.display = 'none';
+                        }
+                    }
                     ButtonFadeManager.refresh(); // Called after a button redraw
                 }
                 if (typeof initTooltips === 'function') initTooltips();
@@ -3490,6 +4063,11 @@ function displayHighlightedFreqs() {
                     DRAW GRAPH
    ================================================== */
 function drawGraph() {
+    // Guard here, a stale redraw from the previous scan can land after sigArray is cleared
+    if (!sigArray || sigArray.length === 0) {
+        return;
+    }
+
     const ctx = canvas.getContext('2d', { willReadFrequently: false });
     const width = canvas.width;
     const height = canvas.height;
@@ -3596,8 +4174,12 @@ function drawGraph() {
         maxSig = 80 - minSig; // Fixed max vertical graph
     }
 
-    const minFreq = Math.max(Math.min(...sigArray.map(d => d.freq)) || 88, 0);
-    const maxFreq = Math.min(Math.max(...sigArray.map(d => d.freq)) || 108, 200);
+    const minFreq = progressiveScanBounds
+        ? progressiveScanBounds.lower
+        : Math.max(Math.min(...sigArray.map(d => d.freq)) || 88, 0);
+    const maxFreq = progressiveScanBounds
+        ? progressiveScanBounds.upper
+        : Math.min(Math.max(...sigArray.map(d => d.freq)) || 108, 200);
 
     if (maxFreq - minFreq <= 12) isDecimalMarkerRoundOff = false;
 
@@ -3827,7 +4409,7 @@ function drawGraph() {
     const gradient = ctx.createLinearGradient(0, height - 20, 0, 0);
 
     // Add colour stops
-    switch (SPECTRUM_COLOR_STYLE) {
+    switch (localStorageItem.spectrumColorStyle) {
 
         // Default
         // Evenly spaced UI gradient
@@ -4171,6 +4753,44 @@ function drawGraph() {
         // Restore to not affect the rest of the graph
         ctx.lineCap = 'butt';
         ctx.lineJoin = 'miter';
+    }
+
+    const effectiveSweepLine = localStorageItem.sweepLineOverride || progressiveScanSweepLineClient;
+
+    if (progressiveScanBounds && progressiveSweepDisplayFreq !== null && effectiveSweepLine !== 'none') {
+        const sweepX = Math.round(xOffset + (progressiveSweepDisplayFreq - minFreq) * xScale);
+
+        if (effectiveSweepLine === 'glow') {
+            const glowHalfWidth = 14;
+            const glowGradient = ctx.createLinearGradient(sweepX - glowHalfWidth, 0, sweepX + glowHalfWidth, 0);
+            glowGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            glowGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.35)');
+            glowGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = glowGradient;
+            ctx.fillRect(sweepX - glowHalfWidth, 9.5, glowHalfWidth * 2, height - 20 - 9.5);
+        } else {
+            if (effectiveSweepLine === 'line' || effectiveSweepLine === 'line-dot') {
+                ctx.setLineDash([]);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(sweepX, 9.5);
+                ctx.lineTo(sweepX, height - 20);
+                ctx.stroke();
+            }
+
+            if (effectiveSweepLine === 'line-dot' || effectiveSweepLine === 'dot') {
+                const latestPoint = progressiveSigArray[progressiveSigArray.length - 1];
+                if (latestPoint) {
+                    const sig = (!localStorageItem.isAutoBaseline && latestPoint.sig < 0) ? 0 : latestPoint.sig;
+                    const sweepY = Math.round(height - (sig - minSig) * yScale) - 20;
+                    ctx.beginPath();
+                    ctx.arc(sweepX, sweepY, 4, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                    ctx.fill();
+                }
+            }
+        }
     }
 
     ctx.restore(); // RIGHT_EDGE_SHIFT
