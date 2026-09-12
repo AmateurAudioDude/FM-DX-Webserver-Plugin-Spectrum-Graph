@@ -17,6 +17,8 @@ const ADJUST_SCALE_TO_OUTLINE = true;           // Adjust auto baseline to hold/
 const ALLOW_ABOVE_CANVAS = true;                // Displays a button to display above signal graph if there is room
 const CORRECT_TOOLTIP_PEAKS = true;             // Corrects inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps
 const DISPLAY_SCANNING_STATUS = true;           // Displays a spinning icon during a scan update
+const ENABLE_PROGRESSIVE_SCAN = true;           // Default state of Progressive Scan for users with no saved preference
+const ADMIN_ONLY_UPDATE_CHECK = true;           // Restrict the update check via raw.githubusercontent.com to admins only
 const LAST_ANTENNA_SCAN_NOTICE_MINUTES = 30;    // Periodically displays a notice if last scan of any antenna is outdated
 const MW_TUNING_STEP = 0;                       // MW tuning step in kHz (9 or 10). Set to 0 to use 'Enhanced Tuning' plugin preference
 const BACKGROUND_BLUR_PIXELS = 5;               // Canvas background blur in pixels
@@ -66,6 +68,30 @@ const translations = {
     scanOlderThanXMinutes: `Scan older than {hours}h {minutes}m for {antennas}`,
     noSignal: `[${pluginName}] Error receiving signal data`,
     scanning: `Scanning`,
+    about: `About`,
+    language: `Language`,
+    settings: `Settings`,
+    openOnPageLoad: `Open on Page Load`,
+    hideExtraButtons: `Hide Extra Buttons`,
+    showScanningStatus: `Show Scanning Status`,
+    progressiveScan: `Progressive Scan`,
+    sweepLine: `Sweep Line`,
+    colorStyle: `Colour Style`,
+    version: `Version`,
+    fmStepSize: `FM Step Size`,
+    fmBandwidth: `FM Bandwidth`,
+    sweepLineNone: `None`,
+    sweepLineLine: `Line`,
+    sweepLineLineDot: `Line + Dot`,
+    sweepLineDot: `Dot`,
+    sweepLineGlow: `Glow`,
+    colorStyleDefault: `Default`,
+    colorStyleAccurate4: `Accurate 4`,
+    colorStyleAccurate7: `Accurate 7`,
+    colorStyleBalanced: `Balanced`,
+    colorStyleWarmTop: `Warm Top`,
+    colorStyleSmooth: `Smooth`,
+    rightClickForOptions: `Right-click for display options`,
   },
   en_us: {
     __name: 'English (US)',
@@ -85,6 +111,30 @@ const translations = {
     scanOlderThanXMinutes: `Scan older than {hours}h {minutes}m for {antennas}`,
     noSignal: `[${pluginName}] Error receiving signal data`,
     scanning: `Scanning`,
+    about: `About`,
+    language: `Language`,
+    settings: `Settings`,
+    openOnPageLoad: `Open on Page Load`,
+    hideExtraButtons: `Hide Extra Buttons`,
+    showScanningStatus: `Show Scanning Status`,
+    progressiveScan: `Progressive Scan`,
+    sweepLine: `Sweep Line`,
+    colorStyle: `Color Style`,
+    version: `Version`,
+    fmStepSize: `FM Step Size`,
+    fmBandwidth: `FM Bandwidth`,
+    sweepLineNone: `None`,
+    sweepLineLine: `Line`,
+    sweepLineLineDot: `Line + Dot`,
+    sweepLineDot: `Dot`,
+    sweepLineGlow: `Glow`,
+    colorStyleDefault: `Default`,
+    colorStyleAccurate4: `Accurate 4`,
+    colorStyleAccurate7: `Accurate 7`,
+    colorStyleBalanced: `Balanced`,
+    colorStyleWarmTop: `Warm Top`,
+    colorStyleSmooth: `Smooth`,
+    rightClickForOptions: `Right-click for display options`,
   },
   es: {
     __name: 'Español',
@@ -104,6 +154,30 @@ const translations = {
     scanOlderThanXMinutes: `El escaneo es más antiguo que {hours}h {minutes}m para {antennas}`,
     noSignal: `[${pluginName}] Error al recibir datos de señal`,
     scanning: `Escaneando`,
+    about: `Acerca de`,
+    language: `Idioma`,
+    settings: `Ajustes`,
+    openOnPageLoad: `Abrir al Cargar la Página`,
+    hideExtraButtons: `Ocultar Botones Adicionales`,
+    showScanningStatus: `Mostrar Estado de Escaneo`,
+    progressiveScan: `Escaneo Progresivo`,
+    sweepLine: `Línea de Barrido`,
+    colorStyle: `Estilo de Color`,
+    version: `Versión`,
+    fmStepSize: `Paso de Frecuencia FM`,
+    fmBandwidth: `Ancho de Banda de FM`,
+    sweepLineNone: `Ninguno`,
+    sweepLineLine: `Línea`,
+    sweepLineLineDot: `Línea + Punto`,
+    sweepLineDot: `Punto`,
+    sweepLineGlow: `Brillo`,
+    colorStyleDefault: `Predeterminado`,
+    colorStyleAccurate4: `Preciso 4`,
+    colorStyleAccurate7: `Preciso 7`,
+    colorStyleBalanced: `Equilibrado`,
+    colorStyleWarmTop: `Cima Cálida`,
+    colorStyleSmooth: `Suave`,
+    rightClickForOptions: `Clic derecho para opciones de visualización`,
   },
   fr: {
     __name: 'Français',
@@ -123,6 +197,30 @@ const translations = {
     scanOlderThanXMinutes: `Le scan est plus ancien que {hours}h {minutes}m pour {antennas}`,
     noSignal: `[${pluginName}] Erreur lors de la réception des données du signal`,
     scanning: `Balayage`,
+    about: `À propos`,
+    language: `Langue`,
+    settings: `Paramètres`,
+    openOnPageLoad: `Ouvrir au Chargement de la Page`,
+    hideExtraButtons: `Masquer les Boutons Supplémentaires`,
+    showScanningStatus: `Afficher l'État du Balayage`,
+    progressiveScan: `Balayage Progressif`,
+    sweepLine: `Ligne de Balayage`,
+    colorStyle: `Style de Couleur`,
+    version: `Version`,
+    fmStepSize: `Pas de Fréquence FM`,
+    fmBandwidth: `Bande Passante FM`,
+    sweepLineNone: `Aucun`,
+    sweepLineLine: `Ligne`,
+    sweepLineLineDot: `Ligne + Point`,
+    sweepLineDot: `Point`,
+    sweepLineGlow: `Lueur`,
+    colorStyleDefault: `Par défaut`,
+    colorStyleAccurate4: `Précis 4`,
+    colorStyleAccurate7: `Précis 7`,
+    colorStyleBalanced: `Équilibré`,
+    colorStyleWarmTop: `Sommet Chaud`,
+    colorStyleSmooth: `Lisse`,
+    rightClickForOptions: `Clic droit pour les options d'affichage`,
   },
   de: {
     __name: 'Deutsch',
@@ -142,6 +240,30 @@ const translations = {
     scanOlderThanXMinutes: `Scan ist älter als {hours}h {minutes}min für {antennas}`,
     noSignal: `[${pluginName}] Fehler beim Empfangen der Signaldaten`,
     scanning: `Scannen`,
+    about: `Über`,
+    language: `Sprache`,
+    settings: `Einstellungen`,
+    openOnPageLoad: `Beim Laden der Seite Öffnen`,
+    hideExtraButtons: `Zusätzliche Schaltflächen Ausblenden`,
+    showScanningStatus: `Scan-Status Anzeigen`,
+    progressiveScan: `Progressiver Scan`,
+    sweepLine: `Sweep-Linie`,
+    colorStyle: `Farbstil`,
+    version: `Version`,
+    fmStepSize: `FM-Schrittweite`,
+    fmBandwidth: `FM-Bandbreite`,
+    sweepLineNone: `Keine`,
+    sweepLineLine: `Linie`,
+    sweepLineLineDot: `Linie + Punkt`,
+    sweepLineDot: `Punkt`,
+    sweepLineGlow: `Leuchten`,
+    colorStyleDefault: `Standard`,
+    colorStyleAccurate4: `Präzise 4`,
+    colorStyleAccurate7: `Präzise 7`,
+    colorStyleBalanced: `Ausgewogen`,
+    colorStyleWarmTop: `Warme Spitze`,
+    colorStyleSmooth: `Weich`,
+    rightClickForOptions: `Rechtsklick für Anzeigeoptionen`,
   },
   nl: {
     __name: 'Nederlands',
@@ -161,6 +283,30 @@ const translations = {
     scanOlderThanXMinutes: `Scan is ouder dan {hours}u {minutes}m voor {antennas}`,
     noSignal: `[${pluginName}] Fout bij het ontvangen van signaalgegevens`,
     scanning: `Scannen`,
+    about: `Over`,
+    language: `Taal`,
+    settings: `Instellingen`,
+    openOnPageLoad: `Openen bij laden van pagina`,
+    hideExtraButtons: `Extra knoppen verbergen`,
+    showScanningStatus: `Scanstatus weergeven`,
+    progressiveScan: `Progressieve scan`,
+    sweepLine: `Sweeplijn`,
+    colorStyle: `Kleurstijl`,
+    version: `Versie`,
+    fmStepSize: `FM-stapgrootte`,
+    fmBandwidth: `FM-bandbreedte`,
+    sweepLineNone: `Geen`,
+    sweepLineLine: `Lijn`,
+    sweepLineLineDot: `Lijn + punt`,
+    sweepLineDot: `Punt`,
+    sweepLineGlow: `Gloed`,
+    colorStyleDefault: `Standaard`,
+    colorStyleAccurate4: `Nauwkeurig 4`,
+    colorStyleAccurate7: `Nauwkeurig 7`,
+    colorStyleBalanced: `Gebalanceerd`,
+    colorStyleWarmTop: `Warme top`,
+    colorStyleSmooth: `Vloeiend`,
+    rightClickForOptions: `Rechtsklikken voor weergaveopties`,
   },
   ru: {
     __name: 'Русский',
@@ -180,6 +326,30 @@ const translations = {
     scanOlderThanXMinutes: `Сканирование старше {hours}ч {minutes}мин для {antennas}`,
     noSignal: `[${pluginName}] Ошибка при получении данных сигнала`,
     scanning: `Сканирование`,
+    about: `О программе`,
+    language: `Язык`,
+    settings: `Настройки`,
+    openOnPageLoad: `Открывать при загрузке страницы`,
+    hideExtraButtons: `Скрыть дополнительные кнопки`,
+    showScanningStatus: `Показывать статус сканирования`,
+    progressiveScan: `Прогрессивное сканирование`,
+    sweepLine: `Линия развёртки`,
+    colorStyle: `Цветовой стиль`,
+    version: `Версия`,
+    fmStepSize: `Шаг настройки FM`,
+    fmBandwidth: `Полоса пропускания FM`,
+    sweepLineNone: `Нет`,
+    sweepLineLine: `Линия`,
+    sweepLineLineDot: `Линия + точка`,
+    sweepLineDot: `Точка`,
+    sweepLineGlow: `Свечение`,
+    colorStyleDefault: `По умолчанию`,
+    colorStyleAccurate4: `Точный 4`,
+    colorStyleAccurate7: `Точный 7`,
+    colorStyleBalanced: `Сбалансированный`,
+    colorStyleWarmTop: `Тёплый пик`,
+    colorStyleSmooth: `Плавный`,
+    rightClickForOptions: `Щёлкните правой кнопкой мыши для параметров отображения`,
   },
   pl: {
     __name: 'Polski',
@@ -199,6 +369,30 @@ const translations = {
     scanOlderThanXMinutes: `Skanowanie jest starsze niż {hours}g {minutes}min dla {antennas}`,
     noSignal: `[${pluginName}] Błąd podczas odbierania danych sygnału`,
     scanning: `Skanowanie`,
+    about: `O wtyczce`,
+    language: `Język`,
+    settings: `Ustawienia`,
+    openOnPageLoad: `Otwórz przy ładowaniu strony`,
+    hideExtraButtons: `Ukryj dodatkowe przyciski`,
+    showScanningStatus: `Pokaż status skanowania`,
+    progressiveScan: `Skanowanie progresywne`,
+    sweepLine: `Linia przemiatania`,
+    colorStyle: `Styl kolorów`,
+    version: `Wersja`,
+    fmStepSize: `Krok strojenia FM`,
+    fmBandwidth: `Szerokość pasma FM`,
+    sweepLineNone: `Brak`,
+    sweepLineLine: `Linia`,
+    sweepLineLineDot: `Linia + kropka`,
+    sweepLineDot: `Kropka`,
+    sweepLineGlow: `Poświata`,
+    colorStyleDefault: `Domyślny`,
+    colorStyleAccurate4: `Dokładny 4`,
+    colorStyleAccurate7: `Dokładny 7`,
+    colorStyleBalanced: `Zrównoważony`,
+    colorStyleWarmTop: `Ciepły szczyt`,
+    colorStyleSmooth: `Gładki`,
+    rightClickForOptions: `Kliknij prawym przyciskiem myszy, aby wyświetlić opcje`,
   },
   cs: {
     __name: 'Čeština',
@@ -218,6 +412,30 @@ const translations = {
     scanOlderThanXMinutes: `Skenování je starší než {hours}h {minutes}min pro {antennas}`,
     noSignal: `[${pluginName}] Chyba při přijímání dat signálu`,
     scanning: `Skenování`,
+    about: `O pluginu`,
+    language: `Jazyk`,
+    settings: `Nastavení`,
+    openOnPageLoad: `Otevřít při načtení stránky`,
+    hideExtraButtons: `Skrýt další tlačítka`,
+    showScanningStatus: `Zobrazit stav skenování`,
+    progressiveScan: `Progresivní skenování`,
+    sweepLine: `Čára rozmítání`,
+    colorStyle: `Styl barev`,
+    version: `Verze`,
+    fmStepSize: `Krok ladění FM`,
+    fmBandwidth: `Šířka pásma FM`,
+    sweepLineNone: `Žádná`,
+    sweepLineLine: `Čára`,
+    sweepLineLineDot: `Čára + tečka`,
+    sweepLineDot: `Tečka`,
+    sweepLineGlow: `Záře`,
+    colorStyleDefault: `Výchozí`,
+    colorStyleAccurate4: `Přesný 4`,
+    colorStyleAccurate7: `Přesný 7`,
+    colorStyleBalanced: `Vyvážený`,
+    colorStyleWarmTop: `Teplý vrchol`,
+    colorStyleSmooth: `Hladký`,
+    rightClickForOptions: `Klikněte pravým tlačítkem pro možnosti zobrazení`,
   },
   hu: {
     __name: 'Magyar',
@@ -237,6 +455,30 @@ const translations = {
     scanOlderThanXMinutes: `A szkennelés régebbi, mint {hours}ó {minutes}p a {antennas}`,
     noSignal: `[${pluginName}] Hiba a jeladatok fogadása közben`,
     scanning: `Szkennelés`,
+    about: `Névjegy`,
+    language: `Nyelv`,
+    settings: `Beállítások`,
+    openOnPageLoad: `Megnyitás oldalbetöltéskor`,
+    hideExtraButtons: `Extra gombok elrejtése`,
+    showScanningStatus: `Szkennelési állapot megjelenítése`,
+    progressiveScan: `Progresszív szkennelés`,
+    sweepLine: `Pásztázó vonal`,
+    colorStyle: `Színstílus`,
+    version: `Verzió`,
+    fmStepSize: `FM lépésköz`,
+    fmBandwidth: `FM sávszélesség`,
+    sweepLineNone: `Nincs`,
+    sweepLineLine: `Vonal`,
+    sweepLineLineDot: `Vonal + pont`,
+    sweepLineDot: `Pont`,
+    sweepLineGlow: `Izzás`,
+    colorStyleDefault: `Alapértelmezett`,
+    colorStyleAccurate4: `Pontos 4`,
+    colorStyleAccurate7: `Pontos 7`,
+    colorStyleBalanced: `Kiegyensúlyozott`,
+    colorStyleWarmTop: `Meleg csúcs`,
+    colorStyleSmooth: `Sima`,
+    rightClickForOptions: `Jobb kattintás a megjelenítési beállításokhoz`,
   }
 };
 
@@ -521,7 +763,9 @@ localStorageItem.fixedVerticalGraph = localStorage.getItem('enableSpectrumGraphF
 localStorageItem.isAutoBaseline = localStorage.getItem('enableSpectrumGraphAutoBaseline') === 'true';               // Auto baseline
 localStorageItem.isAboveSignalCanvas = localStorage.getItem('enableSpectrumGraphAboveSignalCanvas') === 'true';     // Move above signal graph canvas
 localStorageItem.disableNoiseFloorLabel = localStorage.getItem('enableSpectrumHideNoiseFloorLabel') === 'true';     // Display noise floor signal label
-localStorageItem.progressiveScanDisabled = localStorage.getItem('enableSpectrumGraphDisableProgressiveScan') === 'true';
+localStorageItem.progressiveScanDisabled = localStorage.getItem('enableSpectrumGraphDisableProgressiveScan') !== null
+    ? localStorage.getItem('enableSpectrumGraphDisableProgressiveScan') === 'true'
+    : !ENABLE_PROGRESSIVE_SCAN;
 localStorageItem.displayScanningStatus = localStorage.getItem('enableSpectrumGraphDisplayScanningStatus') !== null
     ? localStorage.getItem('enableSpectrumGraphDisplayScanningStatus') === 'true'
     : DISPLAY_SCANNING_STATUS;
@@ -642,12 +886,12 @@ function createLanguageMenuItems() {
 
 function createColorStyleMenuItems() {
     const options = [
-        { value: 'DEFAULT', label: 'Default' },
-        { value: 'ACCURATE_4', label: 'Accurate 4' },
-        { value: 'ACCURATE_7', label: 'Accurate 7' },
-        { value: 'BALANCED', label: 'Balanced' },
-        { value: 'WARM_TOP', label: 'Warm Top' },
-        { value: 'SMOOTH', label: 'Smooth' }
+        { value: 'DEFAULT', label: getTranslatedText('colorStyleDefault') },
+        { value: 'ACCURATE_4', label: getTranslatedText('colorStyleAccurate4') },
+        { value: 'ACCURATE_7', label: getTranslatedText('colorStyleAccurate7') },
+        { value: 'BALANCED', label: getTranslatedText('colorStyleBalanced') },
+        { value: 'WARM_TOP', label: getTranslatedText('colorStyleWarmTop') },
+        { value: 'SMOOTH', label: getTranslatedText('colorStyleSmooth') }
     ];
 
     return options.map(opt => ({
@@ -665,11 +909,11 @@ function createColorStyleMenuItems() {
 
 function createSweepLineMenuItems() {
     const options = [
-        { value: 'none', label: 'None' },
-        { value: 'line', label: 'Line' },
-        { value: 'line-dot', label: 'Line + Dot' },
-        { value: 'dot', label: 'Dot' },
-        { value: 'glow', label: 'Glow' }
+        { value: 'none', label: getTranslatedText('sweepLineNone') },
+        { value: 'line', label: getTranslatedText('sweepLineLine') },
+        { value: 'line-dot', label: getTranslatedText('sweepLineLineDot') },
+        { value: 'dot', label: getTranslatedText('sweepLineDot') },
+        { value: 'glow', label: getTranslatedText('sweepLineGlow') }
     ];
 
     const effective = localStorageItem.sweepLineOverride || progressiveScanSweepLineClient;
@@ -691,7 +935,7 @@ function createSettingsMenuItems() {
 
     // Client-side overrides only, does not change the admin's server-side settings
     items.push({
-        label: 'Open on Page Load',
+        label: getTranslatedText('openOnPageLoad'),
         checked: localStorageItem.autoOpenOnLoad,
         keepOpen: true,
         onClick: () => {
@@ -701,7 +945,7 @@ function createSettingsMenuItems() {
     });
 
     items.push({
-        label: 'Hide Extra Buttons',
+        label: getTranslatedText('hideExtraButtons'),
         checked: localStorageItem.hideExtraButtons,
         keepOpen: true,
         onClick: () => {
@@ -712,7 +956,7 @@ function createSettingsMenuItems() {
     });
 
     items.push({
-        label: 'Show Scanning Status',
+        label: getTranslatedText('showScanningStatus'),
         checked: localStorageItem.displayScanningStatus,
         keepOpen: true,
         onClick: () => {
@@ -723,7 +967,7 @@ function createSettingsMenuItems() {
 
     if (progressiveScanEnabledClient && progressiveScanAvailableServer) {
         items.push({
-            label: 'Progressive Scan',
+            label: getTranslatedText('progressiveScan'),
             checked: !localStorageItem.progressiveScanDisabled,
             keepOpen: true,
             onClick: () => {
@@ -734,13 +978,13 @@ function createSettingsMenuItems() {
         });
 
         items.push({
-            label: 'Sweep Line',
+            label: getTranslatedText('sweepLine'),
             submenu: createSweepLineMenuItems
         });
     }
 
     items.push({
-        label: 'Color Style',
+        label: getTranslatedText('colorStyle'),
         submenu: createColorStyleMenuItems
     });
 
@@ -749,17 +993,17 @@ function createSettingsMenuItems() {
 
 function createAboutMenuItems() {
     return [
-        { label: 'Version', value: pluginVersion, keepOpen: true },
-        { label: 'FM Step Size', value: `${tuningStepSizeClient} kHz`, keepOpen: true },
-        { label: 'FM Bandwidth', value: `${tuningBandwidthClient} kHz`, keepOpen: true }
+        { label: getTranslatedText('version'), value: pluginVersion, keepOpen: true },
+        { label: getTranslatedText('fmStepSize'), value: `${tuningStepSizeClient} kHz`, keepOpen: true },
+        { label: getTranslatedText('fmBandwidth'), value: `${tuningBandwidthClient} kHz`, keepOpen: true }
     ];
 }
 
 function createRootMenuItems() {
     return [
-        { label: 'Language', submenu: createLanguageMenuItems },
-        { label: 'Settings', submenu: createSettingsMenuItems },
-        { label: 'About', submenu: createAboutMenuItems }
+        { label: getTranslatedText('language'), submenu: createLanguageMenuItems },
+        { label: getTranslatedText('settings'), submenu: createSettingsMenuItems },
+        { label: getTranslatedText('about'), submenu: createAboutMenuItems }
     ];
 }
 
@@ -1257,7 +1501,7 @@ function createButton(buttonId) {
                             const stillTooLow = window.innerWidth < 480 && window.innerHeight > window.innerWidth;
                             showSpectrumTip(stillTooLow
                                 ? [getTranslatedText('resolutionTooLowToDisplay')]
-                                : [getTranslatedText('spectrumGraph'), 'Right-click for display options']);
+                                : [getTranslatedText('spectrumGraph'), getTranslatedText('rightClickForOptions')]);
                         }, 400);
                     });
                     spectrumButtonEl.addEventListener('mouseleave', hideSpectrumTip);
@@ -1804,7 +2048,7 @@ async function setupSendSocket() {
 })();
 
 // Function for update notification in /setup
-function checkUpdate(e,t,n,o,i){if(e&&"/setup"!==location.pathname)return;async function r(){try{const e=await fetch(i);if(!e.ok)throw new Error("["+n+"] update check HTTP error! status: "+e.status);const t=(await e.text()).split("\n");let o;if(t.length>2){const e=t.find(e=>e.includes("const pluginVersion =")||e.includes("const plugin_version ="));if(e){const t=e.match(/const\s+plugin[_vV]ersion\s*=\s*['"]([^'"]+)['"]/);t&&(o=t[1])}}return o||(o=t[0]),o}catch(e){return logError("Error fetching file:",e),null}}function a(e,t,n,o){if("/setup"===location.pathname){const i=document.getElementById("plugin-settings");if(i){const r=i.textContent.trim(),a=`<a href="${o}" target="_blank">[${n}] Update available: ${e} --> ${t}</a><br>`;"No plugin settings are available."===r?i.innerHTML=a:i.innerHTML+=" "+a}const r=document.querySelector(".wrapper-outer #navigation .sidenav-content .fa-puzzle-piece")||document.querySelector(".wrapper-outer .sidenav-content")||document.querySelector(".sidenav-content"),a=document.createElement("span");a.style.cssText="display:block;width:12px;height:12px;border-radius:50%;background:#FE0830;margin-left:82px;margin-top:-12px",r.appendChild(a)}}r().then(e=>{e&&e!==t&&(updateText=getTranslatedText('newVersion') || `There is a new version of Spectrum Graph available`,logInfo(updateText),a(t,e,n,o))})}CHECK_FOR_UPDATES&&checkUpdate(pluginSetupOnlyNotify,pluginVersion,pluginName,pluginHomepageUrl,pluginUpdateUrl);
+function checkUpdate(e,t,n,o,i){if(e&&"/setup"!==location.pathname)return;async function r(){try{const e=await fetch(i);if(!e.ok)throw new Error("["+n+"] update check HTTP error! status: "+e.status);const t=(await e.text()).split("\n");let o;if(t.length>2){const e=t.find(e=>e.includes("const pluginVersion =")||e.includes("const plugin_version ="));if(e){const t=e.match(/const\s+plugin[_vV]ersion\s*=\s*['"]([^'"]+)['"]/);t&&(o=t[1])}}return o||(o=t[0]),o}catch(e){return logError("Error fetching file:",e),null}}function a(e,t,n,o){if("/setup"===location.pathname){const i=document.getElementById("plugin-settings");if(i){const r=i.textContent.trim(),a=`<a href="${o}" target="_blank">[${n}] Update available: ${e} --> ${t}</a><br>`;"No plugin settings are available."===r?i.innerHTML=a:i.innerHTML+=" "+a}const r=document.querySelector(".wrapper-outer #navigation .sidenav-content .fa-puzzle-piece")||document.querySelector(".wrapper-outer .sidenav-content")||document.querySelector(".sidenav-content"),a=document.createElement("span");a.style.cssText="display:block;width:12px;height:12px;border-radius:50%;background:#FE0830;margin-left:82px;margin-top:-12px",r.appendChild(a)}}r().then(e=>{e&&e!==t&&(updateText=getTranslatedText('newVersion') || `There is a new version of Spectrum Graph available`,logInfo(updateText),a(t,e,n,o))})}CHECK_FOR_UPDATES&&!ADMIN_ONLY_UPDATE_CHECK&&checkUpdate(pluginSetupOnlyNotify,pluginVersion,pluginName,pluginHomepageUrl,pluginUpdateUrl);
 
 /* ==================================================
                     SIGNAL UNITS
@@ -2731,6 +2975,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.config && typeof data.config.fmLowerLimit === 'number' && data.config.fmLowerLimit > 0) {
                 fmLowerLimitClient = data.config.fmLowerLimit;
             }
+        }
+        if (CHECK_FOR_UPDATES && ADMIN_ONLY_UPDATE_CHECK && isAdmin) {
+            checkUpdate(pluginSetupOnlyNotify, pluginVersion, pluginName, pluginHomepageUrl, pluginUpdateUrl);
         }
     }).catch(() => {});
 });
