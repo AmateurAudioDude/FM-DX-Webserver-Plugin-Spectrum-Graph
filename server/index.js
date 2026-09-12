@@ -257,6 +257,7 @@ client.on('data', (data) => {
   const { xdrd } = serverConfig;
   
   helpers.resolveDataBuffer(data, wss, rdsWss);
+  pluginsApi.emitRawSerialData(data);
   if (authFlags.authMsg == true && authFlags.messageCount > 1) {
     return;
   }

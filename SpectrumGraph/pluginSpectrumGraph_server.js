@@ -1211,6 +1211,7 @@ let interceptedZData = null;
 
 let liveScanBuffer = '';
 let liveScanCapturing = false;
+let liveScanEventCount = 0; // Raw-data events contributing to the current capture - 1 means the whole scan arrived as a single burst
 let pendingScanPoints = [];
 let scanBatchTimer = null;
 let throttleWarnedThisScan = false;
@@ -1380,6 +1381,7 @@ if (progressiveScanAvailable) {
                     const uMatch = liveScanBuffer.match(/(?:^|\n)U/);
                     if (uMatch) {
                         liveScanCapturing = true;
+                        liveScanEventCount = 0;
                         liveScanBuffer = liveScanBuffer.slice(uMatch.index + uMatch[0].length);
                     } else if (liveScanBuffer.length > 4096) {
                         liveScanBuffer = liveScanBuffer.slice(-256); // avoid unbounded growth from unrelated traffic
@@ -1387,6 +1389,7 @@ if (progressiveScanAvailable) {
                 }
 
                 if (liveScanCapturing) {
+                    liveScanEventCount++;
                     const newlineIdx = liveScanBuffer.indexOf('\n');
                     const scanEnded = newlineIdx !== -1;
                     const workingStr = scanEnded ? liveScanBuffer.slice(0, newlineIdx) : liveScanBuffer;
@@ -1406,6 +1409,11 @@ if (progressiveScanAvailable) {
                     if (scanEnded) {
                         liveScanCapturing = false;
                         if (scanBatchTimer) clearTimeout(scanBatchTimer);
+
+                        if (liveScanEventCount <= 1) {
+                            logWarn(`[${pluginName}] Scan data arrived as single burst, if this persists, disable Progressive Scan in settings.`);
+                        }
+
                         flushPendingScanPoints();
                     } else if (pendingScanPoints.length) {
                         scheduleScanBatchFlush();
