@@ -203,11 +203,11 @@ function customRouter() {
                 warnIncompleteData,
                 logLocalCommands,
                 clearGraphOnScan,
-                definedBands,
                 progressiveScanEnabled,
                 progressiveScanSweepLine,
                 progressiveScanBatchMs,
                 progressiveScanReferenceClients,
+                definedBands,
             };
         }
         res.json(response);
@@ -226,15 +226,15 @@ function customRouter() {
                 warnIncompleteData: typeof body.warnIncompleteData === 'boolean' ? body.warnIncompleteData    : warnIncompleteData,
                 logLocalCommands:   typeof body.logLocalCommands === 'boolean'   ? body.logLocalCommands      : logLocalCommands,
                 clearGraphOnScan:   typeof body.clearGraphOnScan === 'boolean'   ? body.clearGraphOnScan      : clearGraphOnScan,
+                progressiveScanEnabled:   typeof body.progressiveScanEnabled === 'boolean' ? body.progressiveScanEnabled : progressiveScanEnabled,
+                progressiveScanSweepLine: VALID_SWEEP_LINES.includes(body.progressiveScanSweepLine) ? body.progressiveScanSweepLine : progressiveScanSweepLine,
+                progressiveScanBatchMs:   !isNaN(Number(body.progressiveScanBatchMs)) ? Math.min(2000, Math.max(20, Number(body.progressiveScanBatchMs))) : progressiveScanBatchMs,
+                progressiveScanReferenceClients: !isNaN(Number(body.progressiveScanReferenceClients)) ? Math.min(100, Math.max(1, Number(body.progressiveScanReferenceClients))) : progressiveScanReferenceClients,
                 definedBands:       Array.isArray(body.definedBands) && body.definedBands.length > 0 &&
                                     body.definedBands.every(b => b && typeof b.name === 'string' &&
                                         Number.isFinite(b.start) && Number.isFinite(b.end) &&
                                         Number.isFinite(b.step) && Number.isFinite(b.bw))
                                         ? body.definedBands : definedBands,
-                progressiveScanEnabled:   typeof body.progressiveScanEnabled === 'boolean' ? body.progressiveScanEnabled : progressiveScanEnabled,
-                progressiveScanSweepLine: VALID_SWEEP_LINES.includes(body.progressiveScanSweepLine) ? body.progressiveScanSweepLine : progressiveScanSweepLine,
-                progressiveScanBatchMs:   !isNaN(Number(body.progressiveScanBatchMs)) ? Math.min(2000, Math.max(20, Number(body.progressiveScanBatchMs))) : progressiveScanBatchMs,
-                progressiveScanReferenceClients: !isNaN(Number(body.progressiveScanReferenceClients)) ? Math.min(100, Math.max(1, Number(body.progressiveScanReferenceClients))) : progressiveScanReferenceClients,
             };
             suppressNextFileWatchReload = true;
             saveUpdatedConfig(updated);
@@ -249,8 +249,9 @@ function customRouter() {
     endpointsRouter.get('/spectrum-graph-plugin/settings', checkStrictAdmin, (req, res) => {
         const cfg = {
             rescanDelay, tuningRange, tuningStepSize, tuningBandwidth,
-            fmLowerLimit, customRanges, warnIncompleteData, logLocalCommands, clearGraphOnScan, definedBands,
+            fmLowerLimit, customRanges, warnIncompleteData, logLocalCommands, clearGraphOnScan,
             progressiveScanEnabled, progressiveScanSweepLine, progressiveScanBatchMs, progressiveScanReferenceClients,
+            definedBands,
         };
 
         const bwOptions = [
@@ -412,7 +413,7 @@ function customRouter() {
                 <div class="field-control"><input type="number" id="fmLowerLimit" value="${cfg.fmLowerLimit}" min="64" max="108" step="0.1"></div>
             </div>
         </div>
-        <div class="section-label">Progressive Scan (Experimental)</div>
+        <div class="section-label">Progressive Scan</div>
         <div class="field-group">
             <div class="field-row">
                 <div><div class="field-label">Enable Progressive Scan</div><div class="field-hint">Fill in the graph live as the scan sweeps the band, instead of waiting for it to finish.</div></div>
@@ -491,7 +492,7 @@ function customRouter() {
 <script>
     const bwOptionsHtml = \`${bwOptionsHtml}\`;
     let bands = ${bandsJson};
-    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, definedBands: defaultConfig.definedBands, progressiveScanEnabled: defaultConfig.progressiveScanEnabled, progressiveScanSweepLine: defaultConfig.progressiveScanSweepLine, progressiveScanBatchMs: defaultConfig.progressiveScanBatchMs, progressiveScanReferenceClients: defaultConfig.progressiveScanReferenceClients })};
+    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, progressiveScanEnabled: defaultConfig.progressiveScanEnabled, progressiveScanSweepLine: defaultConfig.progressiveScanSweepLine, progressiveScanBatchMs: defaultConfig.progressiveScanBatchMs, progressiveScanReferenceClients: defaultConfig.progressiveScanReferenceClients, definedBands: defaultConfig.definedBands })};
 
     function renderBands() {
         const tbody = document.getElementById('bandsBody');
@@ -682,11 +683,11 @@ const defaultConfig = {
     warnIncompleteData: false,
     logLocalCommands: true,
     clearGraphOnScan: true,
-    definedBands: DEFAULT_DEFINED_BANDS,
     progressiveScanEnabled: true,
     progressiveScanSweepLine: 'line',
     progressiveScanBatchMs: 100,
     progressiveScanReferenceClients: 100,
+    definedBands: DEFAULT_DEFINED_BANDS,
 };
 
 // Order of keys in configuration file

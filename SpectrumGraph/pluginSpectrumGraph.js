@@ -1474,7 +1474,7 @@ function createButton(buttonId) {
                 };
                 const showSpectrumTip = (lines) => {
                     spectrumTip = document.createElement('div');
-                    spectrumTip.style.cssText = 'position:fixed;z-index:99998;background:var(--color-2,#333);border:2px solid var(--color-3,#666);border-radius:15px;padding:5px 25px;pointer-events:none;white-space:nowrap;font-size:14px;color:var(--color-text,#eee);text-align:center;opacity:0;transition:opacity 0.3s ease;';
+                    spectrumTip.style.cssText = 'position:fixed;z-index:10;background:var(--color-2,#333);border:2px solid var(--color-3,#666);border-radius:15px;padding:5px 25px;pointer-events:none;white-space:nowrap;font-size:14px;color:var(--color-text,#eee);text-align:center;opacity:0;transition:opacity 0.3s ease;';
                     lines.forEach((text, i) => {
                         const line = document.createElement('div');
                         line.textContent = text;
