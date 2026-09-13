@@ -595,6 +595,7 @@ let progressiveScanSweepLineClient = 'line'; // 'none' | 'line' | 'line-dot' | '
 let progressiveScanBatchMsClient = 100;
 let progressiveScanLatestFreq = null;
 let hasCompletedScanData = false;
+let progressiveScanIsSameRange = false;
 
 let PROGRESSIVE_REVEAL_RATE_SMOOTHING = 0.3;
 let progressiveSmoothedRevealRate = 0;
@@ -735,13 +736,13 @@ function applyFinalSigArray(value) {
     });
 }
 
-// Strict '<': an adjacent old scan can share this exact boundary frequency
+// Lower edge is inclusive, upper is strict, as an adjacent old scan can share that exact frequency
 function getOldScanTail(afterFreq) {
     if (!progressiveScanBounds) return [];
     const sameUpperEdge = lastCompletedScanBounds && lastCompletedScanBounds.upper === progressiveScanBounds.upper;
     return previousSigArray.filter(p => {
         const f = Number(p.freq);
-        return f > afterFreq && (sameUpperEdge ? f <= progressiveScanBounds.upper : f < progressiveScanBounds.upper);
+        return f >= progressiveScanBounds.lower && f > afterFreq && (sameUpperEdge ? f <= progressiveScanBounds.upper : f < progressiveScanBounds.upper);
     });
 }
 
@@ -1914,6 +1915,18 @@ async function setupSendSocket() {
                             ? { lower: data.scanLowerFreq, upper: data.scanUpperFreq }
                             : null;
                         sigArray = getOldScanTail(progressiveScanLatestFreq);
+
+                        // Only clamp/show hover using old data confirmed to be from this same range, not a leftover different band
+                        progressiveScanIsSameRange = !!(lastCompletedScanBounds && progressiveScanBounds &&
+                            lastCompletedScanBounds.lower === progressiveScanBounds.lower &&
+                            lastCompletedScanBounds.upper === progressiveScanBounds.upper);
+                        if (progressiveScanIsSameRange && sigArray.length > 0) {
+                            const oldTailFreqs = sigArray.map(p => Number(p.freq));
+                            const oldTailMin = Math.min(...oldTailFreqs);
+                            const oldTailMax = Math.max(...oldTailFreqs);
+                            if (oldTailMin > progressiveScanBounds.lower) progressiveScanBounds.lower = oldTailMin;
+                            if (oldTailMax < progressiveScanBounds.upper) progressiveScanBounds.upper = oldTailMax;
+                        }
 
                         if (!graphError && isGraphOpen && data.hasOwnProperty('scanSuccess') && data.scanSuccess) {
                             isScanInitiated = true;
@@ -3821,6 +3834,12 @@ function initializeCanvasInteractions() {
 
     // Function to draw circle and tooltips
     function updateTooltip(event) {
+        // Backdrop for not-yet-revealed frequencies is only meaningful when rescanning the same range
+        if (progressiveRevealActive && !progressiveScanIsSameRange) {
+            tooltip.style.visibility = 'hidden';
+            return;
+        }
+
         const ctx = canvas.getContext('2d');
 
         if (graphImageData) ctx.putImageData(graphImageData, 0, 0);
@@ -4502,10 +4521,20 @@ function drawGraph() {
     }
     ctx.strokeStyle = '#ccc';
 
+    const isLwMwBand = maxFreq < 1.8; // Show kHz labels for LW and MW bands
+
+    // Widen the step if labels would collide, as a range ending a step short of its bound can otherwise double their count
+    const widestLabel = isLwMwBand ? String(Math.round(maxFreq * 1000)) : maxFreq.toFixed(freqStep < 0.1 ? (freqStep < 0.05 ? 3 : 2) : 1);
+    const minLabelGap = ctx.measureText(widestLabel).width + 4;
+    for (const step of [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]) {
+        if (step >= freqStep && step * xScale >= minLabelGap) {
+            freqStep = step;
+            break;
+        }
+    }
+
     // Snap label loop start to nearest freqStep multiple so labels land on clean values
     let minFreqRounded = Math.ceil(minFreq / freqStep) * freqStep;
-
-    const isLwMwBand = maxFreq < 1.8; // Show kHz labels for LW and MW bands
 
     for (let freq = minFreqRounded; freq <= maxFreq; freq += freqStep) {
         const x = Math.round(xOffset + (freq - minFreq) * xScale) - 0.5;
@@ -4736,11 +4765,23 @@ function drawGraph() {
     // Draw graph with smoothed points
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.moveTo(xOffset, height - 20); // Start from bottom-left corner
+    // Start under the first point, mirroring how the path ends under the last one, it sits right of the axis edge when data doesn't cover the start of the range
+    ctx.moveTo(xOffset + (sigArray[0].freq - minFreq) * xScale, height - 20);
 
     // Reset screen reader variables
     let ariaLabelMin = (Math.max(Math.min(...sigArray.map(d => d.sig)) - dynamicPadding, -30)).toFixed(1) || 0;
     let ariaLabelStationCount = 0;
+
+    // Mid-sweep the old data can start well ahead of the sweep, leaving a void that must not be spanned by one line
+    let gapThreshold = 0;
+    if (progressiveRevealActive && sigArray.length > 2) {
+        let smallestStep = Infinity;
+        for (let i = 1; i < sigArray.length; i++) {
+            const step = Number(sigArray[i].freq) - Number(sigArray[i - 1].freq);
+            if (step > 0 && step < smallestStep) smallestStep = step;
+        }
+        if (Number.isFinite(smallestStep)) gapThreshold = smallestStep * 8;
+    }
 
     // Draw graph line
     sigArray.forEach((point, index) => {
@@ -4754,6 +4795,10 @@ function drawGraph() {
         if (index === 0) {
             ctx.lineTo(x, y - 20);
         } else {
+            if (gapThreshold && (Number(point.freq) - Number(sigArray[index - 1].freq)) > gapThreshold) {
+                ctx.lineTo(xOffset + (sigArray[index - 1].freq - minFreq) * xScale, height - 20);
+                ctx.moveTo(x, height - 20);
+            }
             ctx.lineTo(x, y - 20);
             if ((point.sig - ariaLabelMin) > 15) ariaLabelStationCount++;
         }
