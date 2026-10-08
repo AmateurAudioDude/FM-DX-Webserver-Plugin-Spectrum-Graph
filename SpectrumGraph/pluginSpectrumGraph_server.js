@@ -214,6 +214,9 @@ function customRouter() {
     });
 
     endpointsRouter.post('/spectrum-graph-plugin/api/config', checkStrictAdmin, express.json(), (req, res) => {
+        // JSON only prevents a submission using admin's cookie
+        if (!req.is('application/json')) return res.status(415).json({ success: false });
+
         try {
             const body = req.body;
             const updated = {
@@ -1368,6 +1371,49 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
     // Call original handleData function
     originalHandleData(wss, receivedData, rdsWss);
 };
+
+// ########## TO BE REMOVED AFTER RAW SERIAL DATA IS NATIVELY SUPPORTED ##########
+
+// For webservers without plugins_api.onRawSerialData (fm-dx-webserver PR #212)
+// adds the same API to plugins_api
+function installRawSerialDataFallback() {
+    if (!pluginsApi || typeof pluginsApi.onRawSerialData === 'function' || typeof pluginsApi.emitRawSerialData === 'function') return;
+
+    const helpers = require(rootDir + '/server/helpers');
+    if (typeof helpers.resolveDataBuffer !== 'function') return;
+
+    const listeners = new Set();
+
+    pluginsApi.onRawSerialData = handler => { listeners.add(handler); };
+    pluginsApi.offRawSerialData = handler => { listeners.delete(handler); };
+    pluginsApi.emitRawSerialData = data => {
+        for (const handler of listeners) {
+            try {
+                handler(data);
+            } catch (error) {
+                logError(`[plugins_api] Raw serial data handler error: ${error.message}`);
+            }
+        }
+    };
+
+    // Every chunk from the serial port and xdrd passes through this function
+    const originalResolveDataBuffer = helpers.resolveDataBuffer;
+    helpers.resolveDataBuffer = function (data, ...rest) {
+        const result = originalResolveDataBuffer.call(this, data, ...rest);
+        pluginsApi.emitRawSerialData(data);
+        return result;
+    };
+
+    logInfo(`[${pluginName}] Using built-in raw serial data hook for progressive scan`);
+}
+
+try {
+    installRawSerialDataFallback();
+} catch (error) {
+    logError(`[${pluginName}] Raw serial data hook failed: ${error.message}`);
+}
+
+// ###############################################################################
 
 const progressiveScanAvailable = !!(pluginsApi && typeof pluginsApi.onRawSerialData === 'function');
 updateSpectrumData({ progressiveScanAvailable });

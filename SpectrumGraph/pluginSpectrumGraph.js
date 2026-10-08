@@ -608,7 +608,7 @@ let pendingFinalSigArray = null;
 let progressiveSweepDisplayFreq = null;
 let progressiveStepFreq = 0;
 let progressiveLastDrawTime = 0;
-let progressiveRedrawIntervalMs = 16.66;
+let progressiveRedrawIntervalMs = 16.66; // ms, default until refresh rate is detected
 let refreshRateDetectionStarted = false;
 
 function detectRefreshRate(sampleFrames = 120, binMs = 0.05) {
@@ -4098,7 +4098,7 @@ function initializeCanvasInteractions() {
 
     // Add event listeners
     let lastTimeThrottled = 0;
-    const throttleDelay = 16.667; // ms
+    const throttleDelay = 16.66; // ms
 
     function updateTooltipThrottled(event) {
         const currentTimeThrottled = performance.now();
