@@ -17,6 +17,22 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 > [!IMPORTANT]
 > For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20.9** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32/releases). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
 
+> [!IMPORTANT]
+> 
+> ## Attention xdrd users
+>
+> Spectrum Graph v1.5.0 introduces progressive scanning, where the graph fills in live as the scan sweeps across the band.
+>
+> If your tuner connects to FM-DX Webserver through xdrd, progressive scanning needs a modified version of xdrd. The standard xdrd sends scan data in one burst, so the graph still appears all at once at the end.
+>
+> To use progressive scanning with xdrd:
+> 
+> 1. Download the modified xdrd: https://github.com/AmateurAudioDude/xdrd/releases
+> 2. Start xdrd with the `-S` flag. This makes it send scan data as each point is measured, just like a direct serial connection.
+> 3. Enable Progressive Scan in the Spectrum Graph settings.
+>
+> Without the modified xdrd, scanning works exactly as before, and the server log shows "Scan data arrived as single burst" when Progressive Scan is enabled. Direct (serial) connections need no changes.
+
 ## SpectrumGraph.json
  
 - **`rescanDelay`**: Number of seconds elapsed since the previous scan before a new scan can be initiated.   
