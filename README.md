@@ -15,6 +15,22 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 * Client-side configuration options located in `pluginSpectrumGraph.js`
 
 > [!IMPORTANT]
+> 
+> ## Progressive Scan
+>
+> Spectrum Graph v1.5.0 introduces progressive scanning, where the graph fills in live as the scan sweeps across the band.
+>
+> If your tuner connects to FM-DX Webserver through xdrd, progressive scanning needs a modified version of xdrd. The standard xdrd sends scan data in one burst, so the graph still appears all at once at the end.
+>
+> To use progressive scanning with xdrd:
+> 
+> 1. Download the modified xdrd: https://github.com/AmateurAudioDude/xdrd/releases
+> 2. Start xdrd with the `-S` flag. This makes it send scan data as each point is measured, just like a direct serial connection.
+> 3. Enable Progressive Scan in the Spectrum Graph settings.
+>
+> Without the modified xdrd, scanning works exactly as before, and the server log shows "Scan data arrived as single burst" when Progressive Scan is enabled. Direct (serial) connections need no changes.
+
+> [!IMPORTANT]
 > For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20.9** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32/releases). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
 
 ## SpectrumGraph.json
@@ -33,6 +49,18 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 
 > [!CAUTION]
 > Lowering the value of **`rescanDelay`** increases the risk of your server being overloaded with scan requests.
+
+v1.5.0
+-------------
+* Added Progressive Scan, graph updates live as a scan sweeps
+* Added right-click menu overhaul with Language, Settings and About submenus
+* Added "Open on Page Load", "Hide Extra Buttons" and "Color Style" settings
+* Added admin settings page control of most client-side settings
+* Added Custom Ranges table editor with estimated scan times
+* Added settings page notices for Progressive Scan problems and available updates
+* Fixed graph not recovering after a server restart until the page was reloaded
+* Improved mobile menu and tooltip behaviour
+* Minor fixes
 
 v1.4.1
 ------

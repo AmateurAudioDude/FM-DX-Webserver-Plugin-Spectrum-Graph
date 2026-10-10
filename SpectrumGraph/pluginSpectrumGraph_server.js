@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.4.1 by AAD
+    Spectrum Graph v1.5.0 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -7,12 +7,15 @@
 
 'use strict';
 
-const pluginVersion = '1.4.1';
+const pluginVersion = '1.5.0';
 
 const AUTO_RESTART_ON_CONNECTION_ERROR = true;
 const FORCE_FALLBACK = false;
+const CHECK_FOR_UPDATES = true;
 
 const pluginName = "Spectrum Graph";
+const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
+const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
 
 // Library imports
 const express = require('express');
@@ -121,11 +124,12 @@ try {
 // const variables
 const debug = false;
 const validScans = ['scan', 'scan-0', 'scan-1', 'scan-2'];
+const VALID_SWEEP_LINES = ['none', 'line', 'line-dot', 'dot', 'glow'];
 const webserverPort = config.webserver.webserverPort || 8080;
 const externalWsUrl = `ws://127.0.0.1:${webserverPort}`;  // Used for fallback IP, but not for connections
 
 // let variables
-let extraSocket, textSocket, textSocketLost, messageParsed, messageParsedTimeout, tuningLowerLimitScan, tuningUpperLimitScan, tuningLowerLimitOffset, tuningUpperLimitOffset, debounceTimer, ipTimeout, intervalSerial, intervalSerialReconnect, serialConnectionLoss;
+let extraSocket, textSocket, textSocketLost, messageParsed, messageParsedTimeout, debounceTimer, ipTimeout, intervalSerial, intervalSerialReconnect, serialConnectionLoss;
 let restartCounter = 0;
 let disableScanBelowFmLowerLimit = false;
 let ipAddress = externalWsUrl;
@@ -142,12 +146,13 @@ let lastScanCommand = null;
 let connectionStatusKnown = false;
 let isDeviceCompatible = false;
 let sigArray = [];
+let progressiveSingleBurstScans = 0; // Consecutive scans that arrived in one chunk, so nothing could be streamed
+let cachedUpdateCheck = null;
 
 // Check if module or radio firmware
 let isModule = true; // TEF668X module
 let isFirstFirmwareNotice = false;
 let firmwareType = 'unknown';
-let BWradio = 0;
 
 // Check device name in config
 let deviceName;
@@ -182,6 +187,42 @@ let spectrumData = {
     sd: null
 };
 
+const UPDATE_CHECK_TTL = 6 * 60 * 60 * 1000;
+
+// Only ever called when an admin opens the settings page, so there is no background polling
+async function getLatestVersion() {
+    if (cachedUpdateCheck && Date.now() - cachedUpdateCheck.checkedAt < UPDATE_CHECK_TTL) return cachedUpdateCheck.latest;
+
+    let latest = null;
+    try {
+        const response = await fetch(pluginUpdateUrl, { signal: AbortSignal.timeout(8000) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const match = (await response.text()).match(/const\s+plugin[_vV]ersion\s*=\s*['"]([^'"]+)['"]/);
+        if (match) latest = match[1];
+    } catch (error) {
+        logWarn(`[${pluginName}] Update check failed: ${error.message}`);
+    }
+
+    cachedUpdateCheck = { latest, checkedAt: Date.now() };
+    return latest;
+}
+
+// Problems the console warns about, surfaced where an admin will actually see them
+function progressiveScanIssue() {
+    if (!progressiveScanEnabled) return null;
+
+    if (!progressiveScanAvailable) {
+        return `No raw serial data hook is available, so Progressive Scan cannot run. Update FM-DX Webserver to a version including <b>plugins_api.onRawSerialData</b>.`;
+    }
+
+    if (progressiveSingleBurstScans > 0) {
+        const scans = progressiveSingleBurstScans === 1 ? `The last scan` : `The last ${progressiveSingleBurstScans} scans`;
+        return `${scans} arrived as a single burst, so there was nothing to reveal progressively. This usually means xdrd is not the forked build that streams scan data. Follow the setup instructions on the <a href="${pluginHomepageUrl}#progressive-scan" target="_blank" rel="noopener">GitHub page</a>, or turn off Progressive Scan below.`;
+    }
+
+    return null;
+}
+
 const checkStrictAdmin = (req, res, next) => {
     if (req.session && req.session.isAdminAuthenticated) return next();
     return res.status(401).send('Unauthorised.');
@@ -190,18 +231,24 @@ const checkStrictAdmin = (req, res, next) => {
 function customRouter() {
     endpointsRouter.get('/spectrum-graph-plugin/api/config', (req, res) => {
         const isAdmin = (req.session && req.session.isAdminAuthenticated) || false;
-        const response = { isAdmin, config: { fmLowerLimit } };
+        const response = { isAdmin, config: { fmLowerLimit, progressiveScanEnabled, progressiveScanSweepLine, ...clientSettings } };
         if (isAdmin) {
             response.config = {
+                ...clientSettings,
                 fmLowerLimit,
                 rescanDelay,
                 tuningRange,
                 tuningStepSize,
                 tuningBandwidth,
                 customRanges,
+                disableHfSpanLimit,
                 warnIncompleteData,
                 logLocalCommands,
                 clearGraphOnScan,
+                progressiveScanEnabled,
+                progressiveScanSweepLine,
+                progressiveScanBatchMs,
+                progressiveScanReferenceClients,
                 definedBands,
             };
         }
@@ -209,6 +256,9 @@ function customRouter() {
     });
 
     endpointsRouter.post('/spectrum-graph-plugin/api/config', checkStrictAdmin, express.json(), (req, res) => {
+        // JSON only prevents a submission using admin's cookie
+        if (!req.is('application/json')) return res.status(415).json({ success: false });
+
         try {
             const body = req.body;
             const updated = {
@@ -218,15 +268,23 @@ function customRouter() {
                 tuningBandwidth:    !isNaN(Number(body.tuningBandwidth))    ? Number(body.tuningBandwidth)    : tuningBandwidth,
                 fmLowerLimit:       !isNaN(Number(body.fmLowerLimit))       ? Number(body.fmLowerLimit)       : fmLowerLimit,
                 customRanges:       typeof body.customRanges === 'string'   ? body.customRanges               : customRanges,
+                disableHfSpanLimit: typeof body.disableHfSpanLimit === 'boolean' ? body.disableHfSpanLimit    : disableHfSpanLimit,
                 warnIncompleteData: typeof body.warnIncompleteData === 'boolean' ? body.warnIncompleteData    : warnIncompleteData,
                 logLocalCommands:   typeof body.logLocalCommands === 'boolean'   ? body.logLocalCommands      : logLocalCommands,
                 clearGraphOnScan:   typeof body.clearGraphOnScan === 'boolean'   ? body.clearGraphOnScan      : clearGraphOnScan,
+                progressiveScanEnabled:   typeof body.progressiveScanEnabled === 'boolean' ? body.progressiveScanEnabled : progressiveScanEnabled,
+                progressiveScanSweepLine: VALID_SWEEP_LINES.includes(body.progressiveScanSweepLine) ? body.progressiveScanSweepLine : progressiveScanSweepLine,
+                progressiveScanBatchMs:   !isNaN(Number(body.progressiveScanBatchMs)) ? Math.min(2000, Math.max(20, Number(body.progressiveScanBatchMs))) : progressiveScanBatchMs,
+                progressiveScanReferenceClients: !isNaN(Number(body.progressiveScanReferenceClients)) ? Math.min(100, Math.max(1, Number(body.progressiveScanReferenceClients))) : progressiveScanReferenceClients,
                 definedBands:       Array.isArray(body.definedBands) && body.definedBands.length > 0 &&
                                     body.definedBands.every(b => b && typeof b.name === 'string' &&
                                         Number.isFinite(b.start) && Number.isFinite(b.end) &&
                                         Number.isFinite(b.step) && Number.isFinite(b.bw))
                                         ? body.definedBands : definedBands,
             };
+            CLIENT_SETTINGS.forEach(s => {
+                updated[s.key] = (s.key in body) ? coerceClientSetting(s, body[s.key]) : clientSettings[s.key];
+            });
             suppressNextFileWatchReload = true;
             saveUpdatedConfig(updated);
             loadConfigFile('re');
@@ -237,10 +295,15 @@ function customRouter() {
         }
     });
 
-    endpointsRouter.get('/spectrum-graph-plugin/settings', checkStrictAdmin, (req, res) => {
+    endpointsRouter.get('/spectrum-graph-plugin/settings', checkStrictAdmin, async (req, res) => {
+        const latestVersion = CHECK_FOR_UPDATES ? await getLatestVersion() : null;
         const cfg = {
+            ...clientSettings,
             rescanDelay, tuningRange, tuningStepSize, tuningBandwidth,
-            fmLowerLimit, customRanges, warnIncompleteData, logLocalCommands, clearGraphOnScan, definedBands,
+            fmLowerLimit, customRanges, disableHfSpanLimit, warnIncompleteData, logLocalCommands, clearGraphOnScan,
+            progressiveScanEnabled, progressiveScanSweepLine, progressiveScanBatchMs, progressiveScanReferenceClients,
+            definedBands,
+            tuningUpperLimit: (config?.webserver?.tuningLimit === false ? 108 : Number(config?.webserver?.tuningUpperLimit)) || 108,
         };
 
         const bwOptions = [
@@ -270,13 +333,33 @@ function customRouter() {
 
         const bandsJson = JSON.stringify(cfg.definedBands);
 
+        const scanIssue = progressiveScanIssue();
+        const isUpdateAvailable = latestVersion && latestVersion !== pluginVersion;
+
+        const bannersHtml = [
+            scanIssue ? `<div class="banner banner-warn"><span class="banner-icon">&#9888;</span><div><b>Progressive Scan</b><br>${scanIssue}</div></div>` : '',
+            isUpdateAvailable ? `<div class="banner banner-info"><span class="banner-icon">&#8679;</span><div>Spectrum Graph <b>v${latestVersion}</b> is available, this server is running v${pluginVersion}. See the <a href="${pluginHomepageUrl}" target="_blank" rel="noopener">GitHub page</a>.</div></div>` : '',
+        ].join('');
+
+        const clientFieldsHtml = (section) => CLIENT_SETTINGS.filter(s => s.section === section).map(s => {
+            const control = s.type === 'boolean'
+                ? `<label class="toggle"><input type="checkbox" id="${s.key}" ${cfg[s.key] ? 'checked' : ''}><span class="toggle-track"></span></label>`
+                : s.type === 'number'
+                    ? `<input type="number" id="${s.key}" value="${cfg[s.key]}" min="${s.min}" max="${s.max}" step="${s.step}">`
+                    : `<input type="text" id="${s.key}" value="${String(cfg[s.key]).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">`;
+            return `            <div class="field-row">
+                <div><div class="field-label">${s.label}</div><div class="field-hint">${s.hint}</div></div>
+                <div class="field-control">${control}</div>
+            </div>`;
+        }).join('\n');
+
         const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spectrum Graph - Settings</title>
-    <link rel="icon" href="data:,">
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
@@ -355,6 +438,19 @@ function customRouter() {
         .btn-del:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-dim); }
         .btn-add { background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; padding: 7px 14px; cursor: pointer; font-size: 12px; font-weight: 600; transition: background 0.15s; }
         .btn-add:hover { background: var(--accent-dim); }
+        .est { font-size: 12px; white-space: nowrap; }
+        .est-ok { color: var(--success); }
+        .est-slow { color: var(--danger); font-weight: 600; }
+        .est-none { color: var(--muted); }
+        .btn-add:disabled { opacity: 0.4; cursor: default; }
+        .btn-add:disabled:hover { background: none; }
+        /* Banners */
+        .banner { display: flex; gap: 10px; align-items: flex-start; padding: 12px 32px; font-size: 13px; line-height: 1.55; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .banner b { font-weight: 600; }
+        .banner a { color: inherit; text-decoration: underline; }
+        .banner-icon { font-size: 15px; line-height: 1.3; flex-shrink: 0; }
+        .banner-warn { background: var(--danger-dim); color: #e8928a; }
+        .banner-info { background: var(--accent-dim); color: var(--accent); }
         /* Toast */
         #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--success); color: #fff; padding: 10px 20px; border-radius: 4px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 99; }
         #toast.err { background: var(--danger); }
@@ -376,7 +472,9 @@ function customRouter() {
     <button class="tab-btn active" data-target="tab-general">General</button>
     <button class="tab-btn" data-target="tab-ranges">Custom Ranges</button>
     <button class="tab-btn" data-target="tab-bands">Band Definitions</button>
+    <button class="tab-btn" data-target="tab-display">Display</button>
 </nav>
+${bannersHtml}
 <main>
     <div id="tab-general" class="tab-content active">
         <div class="section-label" style="margin-top:4px">Scanning</div>
@@ -400,6 +498,39 @@ function customRouter() {
             <div class="field-row">
                 <div><div class="field-label">FM Lower Limit</div><div class="field-hint">Lower edge of the FM band in MHz to scan. Default value is 86.</div></div>
                 <div class="field-control"><input type="number" id="fmLowerLimit" value="${cfg.fmLowerLimit}" min="64" max="108" step="0.1"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Estimated Scan Time</div><div class="field-hint">For the main Scan button, using the tuner's upper limit of ${cfg.tuningUpperLimit} MHz.<br>A full band scan covers the FM band or the range below it, depending on where the radio is currently tuned.</div></div>
+                <div class="field-control"><div id="mainScanEst" class="est"></div></div>
+            </div>
+        </div>
+        <div class="section-label">Progressive Scan</div>
+        <div class="field-group">
+            <div class="field-row">
+                <div><div class="field-label">Enable Progressive Scan</div><div class="field-hint">Fill in the graph live as the scan sweeps the band, instead of waiting for it to finish.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="progressiveScanEnabled" ${cfg.progressiveScanEnabled ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Sweep Line</div><div class="field-hint">Marks where the scan is currently up to.</div></div>
+                <div class="field-control">
+                    <select id="progressiveScanSweepLine">
+                        <option value="none"${cfg.progressiveScanSweepLine === 'none' ? ' selected' : ''}>None</option>
+                        <option value="line"${cfg.progressiveScanSweepLine === 'line' ? ' selected' : ''}>Line</option>
+                        <option value="line-dot"${cfg.progressiveScanSweepLine === 'line-dot' ? ' selected' : ''}>Line + Dot</option>
+                        <option value="dot"${cfg.progressiveScanSweepLine === 'dot' ? ' selected' : ''}>Dot</option>
+                        <option value="glow"${cfg.progressiveScanSweepLine === 'glow' ? ' selected' : ''}>Glow</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Batch Interval</div><div class="field-hint">How often (ms) newly-scanned points are sent to clients. Lower uses more CPU per connected client but is closer to real-time, higher is lighter on CPU but delays the sweep further behind.</div></div>
+                <div class="field-control"><input type="number" id="progressiveScanBatchMs" value="${cfg.progressiveScanBatchMs}" min="20" max="2000" step="10"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Reference Connection Count</div><div class="field-hint">Batch Interval above is calibrated for up to this many open <b>/data_plugins</b> connections. Beyond it, the interval stretches proportionally so total server load stays roughly flat rather than growing with each one. Note: <b>/data_plugins</b> is shared across plugins, so one browser tab can open several connections to it - open a tab and check your server logs/network console to see the actual number before tuning this.</div></div>
+                <div class="field-control"><input type="number" id="progressiveScanReferenceClients" value="${cfg.progressiveScanReferenceClients}" min="1" max="100" step="1"></div>
             </div>
         </div>
         <div class="section-label">Diagnostics</div>
@@ -428,10 +559,28 @@ function customRouter() {
     <div id="tab-ranges" class="tab-content">
         <div class="ranges-hint" style="margin-top:4px">
             <strong>Format:</strong> <code>count, Name, lowMHz, highMHz[, stepKHz], ...</code><br>
-            <strong>Example:</strong> <code>2, FM1, 65, 74, 56, FM2, 80, 88, 56</code><br>
-            Configure up to two custom frequency range buttons. The per-range step (kHz) is optional. An FM button is always prepended automatically.
+            <strong>Example:</strong> <code>2, FM1, 65, 74, 50, FM2, 80, 88, 50</code><br>
+            Configure up to two custom frequency range buttons. The per-range step (kHz) is optional. An FM button is always prepended automatically.<br>
+            The table and the string stay in sync, the string is what gets saved. Edits to the string apply when you click away from it.
         </div>
-        <div class="section-label">Ranges String</div>
+        <div class="section-label">Ranges</div>
+        <div class="bands-wrap">
+            <table>
+                <thead><tr><th>Name</th><th>Low (MHz)</th><th>High (MHz)</th><th>Step (kHz)</th><th>Est. Time</th><th></th></tr></thead>
+                <tbody id="rangesBody"></tbody>
+            </table>
+        </div>
+        <button class="btn-add" id="addRangeBtn">+ Add Range</button>
+        <div class="section-label" style="margin-top:20px">Limits</div>
+        <div class="field-group">
+            <div class="field-row">
+                <div><div class="field-label">Disable 3 MHz HF Span Limit</div><div class="field-hint">Custom ranges starting below 30 MHz are normally capped to a 3 MHz span. Disable to allow wider HF scans.<br>Watch the scan duration: clients drop the connection after 5 seconds, and HF defaults to 1-2 kHz steps, so set a coarser per-range step for wide spans.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="disableHfSpanLimit" ${cfg.disableHfSpanLimit ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+        </div>
+        <div class="section-label" style="margin-top:20px">Ranges String</div>
         <div class="field-group" style="padding:14px 16px">
             <textarea id="customRanges" rows="4" spellcheck="false">${cfg.customRanges.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea>
         </div>
@@ -441,18 +590,31 @@ function customRouter() {
         <p style="font-size:12px;color:var(--muted);margin:4px 0 16px">Matched by current frequency for AM/SW scans. All values in kHz. Bands &ge;64&nbsp;MHz use FM demodulator logic.</p>
         <div class="bands-wrap">
             <table>
-                <thead><tr><th>Name</th><th>Start (kHz)</th><th>End (kHz)</th><th>Step (kHz)</th><th>BW (kHz)</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Start (kHz)</th><th>End (kHz)</th><th>Step (kHz)</th><th>BW (kHz)</th><th>Est. Time</th><th></th></tr></thead>
                 <tbody id="bandsBody"></tbody>
             </table>
         </div>
         <button class="btn-add" id="addBandBtn">+ Add Band</button>
+    </div>
+
+    <div id="tab-display" class="tab-content">
+        <p style="font-size:12px;color:var(--muted);margin:4px 0 16px">Applied in the browser. Connected clients pick these up on next page load. Not all client-side settings can be configured on this page, see <b>pluginSpectrumGraph.js</b> for for the remaining options, which are read as the plugin loads.</p>
+        <div class="section-label">Interface</div>
+        <div class="field-group">
+${clientFieldsHtml('interface')}
+        </div>
+        <div class="section-label">Advanced</div>
+        <div class="field-group">
+${clientFieldsHtml('advanced')}
+        </div>
     </div>
 </main>
 <div id="toast"></div>
 <script>
     const bwOptionsHtml = \`${bwOptionsHtml}\`;
     let bands = ${bandsJson};
-    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, definedBands: defaultConfig.definedBands })};
+    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, disableHfSpanLimit: defaultConfig.disableHfSpanLimit, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, progressiveScanEnabled: defaultConfig.progressiveScanEnabled, progressiveScanSweepLine: defaultConfig.progressiveScanSweepLine, progressiveScanBatchMs: defaultConfig.progressiveScanBatchMs, progressiveScanReferenceClients: defaultConfig.progressiveScanReferenceClients, definedBands: defaultConfig.definedBands, ...Object.fromEntries(CLIENT_SETTINGS.map(s => [s.key, s.def])) })};
+    const CLIENT_FIELDS = ${JSON.stringify(CLIENT_SETTINGS.map(s => ({ key: s.key, type: s.type })))};
 
     function renderBands() {
         const tbody = document.getElementById('bandsBody');
@@ -465,6 +627,7 @@ function customRouter() {
                 <td><input class="band-input" type="number" data-i="\${i}" data-field="end" value="\${band.end}"></td>
                 <td><input class="band-input" type="number" data-i="\${i}" data-field="step" value="\${band.step}"></td>
                 <td><select class="band-input" data-i="\${i}" data-field="bw">\${bwOptionsHtml}</select></td>
+                <td class="est" data-est="band" data-i="\${i}"></td>
                 <td><button class="btn-del" data-i="\${i}">Remove</button></td>
             \`;
             tbody.appendChild(tr);
@@ -474,8 +637,10 @@ function customRouter() {
             el.addEventListener('input', () => {
                 const i = +el.dataset.i, f = el.dataset.field;
                 bands[i][f] = f === 'name' ? el.value : Number(el.value);
+                updateEstimates();
             });
         });
+        updateEstimates();
         tbody.querySelectorAll('select.band-input').forEach(el => {
             el.addEventListener('change', () => { bands[+el.dataset.i].bw = Number(el.value); });
         });
@@ -489,6 +654,172 @@ function customRouter() {
     document.getElementById('addBandBtn').addEventListener('click', () => {
         bands.push({ name: 'New', start: 0, end: 0, step: 1, bw: 3 });
         renderBands();
+    });
+
+    const MAX_RANGES = 2;
+    let ranges = parseRangesString(document.getElementById('customRanges').value);
+
+    // Stride mirrors the server parser, a 4th numeric field means that range carries a step
+    function parseRangesString(str) {
+        const parts = String(str).split(',').map(p => p.trim());
+        const count = Number(parts[0]) || 0;
+        const out = [];
+        let pos = 1;
+        for (let i = 0; i < count; i++) {
+            const name = parts[pos];
+            const low = Number(parts[pos + 1]);
+            const high = Number(parts[pos + 2]);
+            const maybeStep = parts[pos + 3];
+            const hasStep = maybeStep !== undefined && maybeStep !== '' && !isNaN(Number(maybeStep)) && Number(maybeStep) > 0;
+            if (name && !isNaN(low) && !isNaN(high)) out.push({ name, low, high, step: hasStep ? Number(maybeStep) : '' });
+            pos += hasStep ? 4 : 3;
+        }
+        return out.slice(0, MAX_RANGES);
+    }
+
+    function buildRangesString() {
+        const rows = ranges.filter(r => String(r.name).trim() !== '');
+        if (rows.length === 0) return '';
+        const parts = [rows.length];
+        rows.forEach(r => {
+            parts.push(String(r.name).trim(), Number(r.low) || 0, Number(r.high) || 0);
+            const step = Number(r.step);
+            if (String(r.step).trim() !== '' && step > 0) parts.push(step);
+        });
+        return parts.join(', ');
+    }
+
+    function syncRangesString() {
+        document.getElementById('customRanges').value = buildRangesString();
+    }
+
+    function renderRanges() {
+        const tbody = document.getElementById('rangesBody');
+        tbody.innerHTML = '';
+        ranges.forEach((r, i) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = \`
+                <td><input class="band-input nm" data-i="\${i}" data-field="name" value="\${escHtml(r.name)}"></td>
+                <td><input class="band-input" type="number" step="any" data-i="\${i}" data-field="low" value="\${r.low}"></td>
+                <td><input class="band-input" type="number" step="any" data-i="\${i}" data-field="high" value="\${r.high}"></td>
+                <td><input class="band-input" type="number" step="1" placeholder="auto" data-i="\${i}" data-field="step" value="\${r.step}"></td>
+                <td class="est" data-est="range" data-i="\${i}"></td>
+                <td><button class="btn-del" data-i="\${i}">Remove</button></td>
+            \`;
+            tbody.appendChild(tr);
+        });
+        tbody.querySelectorAll('input.band-input').forEach(el => {
+            el.addEventListener('input', () => {
+                const i = +el.dataset.i, f = el.dataset.field;
+                ranges[i][f] = (f === 'name' || el.value === '') ? el.value : Number(el.value);
+                syncRangesString();
+                updateEstimates();
+            });
+        });
+        updateEstimates();
+        tbody.querySelectorAll('.btn-del').forEach(el => {
+            el.addEventListener('click', () => { ranges.splice(+el.dataset.i, 1); renderRanges(); syncRangesString(); });
+        });
+        document.getElementById('addRangeBtn').disabled = ranges.length >= MAX_RANGES;
+    }
+
+    document.getElementById('addRangeBtn').addEventListener('click', () => {
+        if (ranges.length >= MAX_RANGES) return;
+        ranges.push({ name: 'New', low: 0, high: 0, step: '' });
+        renderRanges();
+        syncRangesString();
+    });
+
+    document.getElementById('customRanges').addEventListener('change', () => {
+        ranges = parseRangesString(document.getElementById('customRanges').value);
+        renderRanges();
+    });
+
+    const SCAN_WARN_SECONDS = 4.75;
+
+    // Calibrated against measured scans, biased to over-estimate so a borderline range reads as slow rather than safe
+    function estimateScanSeconds(lowMHz, highMHz, stepKHz) {
+        const spanKHz = (highMHz - lowMHz) * 1000;
+        if (!(spanKHz > 0) || !(stepKHz > 0)) return null;
+        const points = Math.floor(spanKHz / stepKHz) + 1;
+        const ms = lowMHz >= 64 ? 300 + points * 6.2 : 250 + points * 9.8;
+        return Math.ceil(ms / 100) / 10;
+    }
+
+    // Mirrors the clamps startScan() applies before the tuner sees the range
+    function effectiveRangeBounds(r) {
+        let low = Number(r.low), high = Number(r.high);
+        if (low < 30) {
+            if (low < 0.144) low = 0.144;
+            if (high > 27) high = 27;
+            if (!document.getElementById('disableHfSpanLimit').checked && high - low > 3) high = low + 3;
+        } else {
+            if (low < 64) low = 64;
+            if (high > 108) high = 108;
+        }
+        return { low, high };
+    }
+
+    function effectiveRangeStep(r, low, high) {
+        if (String(r.step).trim() !== '' && Number(r.step) > 0) return Number(r.step);
+        if (low < 30) return low <= 1.710 ? 1 : 2;
+        const fmLower = Number(document.getElementById('fmLowerLimit').value) || 86;
+        return high <= fmLower ? 30 : (Number(document.getElementById('tuningStepSize').value) || 50);
+    }
+
+    function paintEstimate(cell, seconds) {
+        if (seconds === null) {
+            cell.textContent = '—';
+            cell.className = 'est est-none';
+            return;
+        }
+        cell.textContent = seconds.toFixed(1) + 's';
+        cell.className = seconds >= SCAN_WARN_SECONDS ? 'est est-slow' : 'est est-ok';
+    }
+
+    const TUNING_UPPER_LIMIT = ${cfg.tuningUpperLimit};
+
+    // Main scan splits at the FM lower limit, so a full band scan is one segment or the other
+    function updateMainScanEstimate() {
+        const fmLower = Number(document.getElementById('fmLowerLimit').value) || 86;
+        const step = Number(document.getElementById('tuningStepSize').value) || 50;
+        const range = Number(document.getElementById('tuningRange').value) || 0;
+        const upper = TUNING_UPPER_LIMIT;
+
+        const segments = [];
+        if (range > 0) {
+            const span = Math.min(2 * range, upper - fmLower);
+            segments.push(['±' + range + ' MHz', estimateScanSeconds(fmLower, fmLower + span, step)]);
+        } else {
+            segments.push([fmLower + '-' + upper + ' MHz', estimateScanSeconds(fmLower, upper, step)]);
+            if (fmLower > 64) segments.push(['64-' + fmLower + ' MHz', estimateScanSeconds(64, fmLower, step)]);
+        }
+
+        document.getElementById('mainScanEst').innerHTML = segments.map(([label, sec]) => {
+            if (sec === null) return '<div class="est est-none">' + label + ': —</div>';
+            const cls = sec >= SCAN_WARN_SECONDS ? 'est est-slow' : 'est est-ok';
+            return '<div class="' + cls + '">' + label + ': ' + sec.toFixed(1) + 's</div>';
+        }).join('');
+    }
+
+    function updateEstimates() {
+        updateMainScanEstimate();
+        document.querySelectorAll('[data-est="range"]').forEach(cell => {
+            const r = ranges[+cell.dataset.i];
+            if (!r) return;
+            const { low, high } = effectiveRangeBounds(r);
+            paintEstimate(cell, estimateScanSeconds(low, high, effectiveRangeStep(r, low, high)));
+        });
+        document.querySelectorAll('[data-est="band"]').forEach(cell => {
+            const b = bands[+cell.dataset.i];
+            if (!b) return;
+            paintEstimate(cell, estimateScanSeconds(Number(b.start) / 1000, Number(b.end) / 1000, Number(b.step)));
+        });
+    }
+
+    ['fmLowerLimit', 'tuningStepSize', 'tuningRange', 'disableHfSpanLimit'].forEach(id => {
+        document.getElementById(id).addEventListener('input', updateEstimates);
+        document.getElementById(id).addEventListener('change', updateEstimates);
     });
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -515,11 +846,22 @@ function customRouter() {
         document.getElementById('tuningBandwidth').value  = DEFAULTS.tuningBandwidth;
         document.getElementById('fmLowerLimit').value     = DEFAULTS.fmLowerLimit;
         document.getElementById('customRanges').value     = DEFAULTS.customRanges;
+        ranges = parseRangesString(DEFAULTS.customRanges);
+        renderRanges();
+        document.getElementById('disableHfSpanLimit').checked = DEFAULTS.disableHfSpanLimit;
         document.getElementById('clearGraphOnScan').checked   = DEFAULTS.clearGraphOnScan;
         document.getElementById('warnIncompleteData').checked = DEFAULTS.warnIncompleteData;
         document.getElementById('logLocalCommands').checked   = DEFAULTS.logLocalCommands;
+        document.getElementById('progressiveScanEnabled').checked  = DEFAULTS.progressiveScanEnabled;
+        document.getElementById('progressiveScanSweepLine').value  = DEFAULTS.progressiveScanSweepLine;
+        document.getElementById('progressiveScanBatchMs').value    = DEFAULTS.progressiveScanBatchMs;
+        document.getElementById('progressiveScanReferenceClients').value = DEFAULTS.progressiveScanReferenceClients;
         bands = DEFAULTS.definedBands.map(b => ({ ...b }));
         renderBands();
+        CLIENT_FIELDS.forEach(f => {
+            const el = document.getElementById(f.key);
+            if (f.type === 'boolean') el.checked = DEFAULTS[f.key]; else el.value = DEFAULTS[f.key];
+        });
         showToast('Defaults restored. Click Save Settings to apply.', false);
     });
 
@@ -533,11 +875,20 @@ function customRouter() {
             tuningBandwidth:    Number(document.getElementById('tuningBandwidth').value),
             fmLowerLimit:       Number(document.getElementById('fmLowerLimit').value),
             customRanges:       document.getElementById('customRanges').value,
+            disableHfSpanLimit: document.getElementById('disableHfSpanLimit').checked,
             warnIncompleteData: document.getElementById('warnIncompleteData').checked,
             logLocalCommands:   document.getElementById('logLocalCommands').checked,
             clearGraphOnScan:   document.getElementById('clearGraphOnScan').checked,
             definedBands:       bands,
+            progressiveScanEnabled:   document.getElementById('progressiveScanEnabled').checked,
+            progressiveScanSweepLine: document.getElementById('progressiveScanSweepLine').value,
+            progressiveScanBatchMs:   Number(document.getElementById('progressiveScanBatchMs').value),
+            progressiveScanReferenceClients: Number(document.getElementById('progressiveScanReferenceClients').value),
         };
+        CLIENT_FIELDS.forEach(f => {
+            const el = document.getElementById(f.key);
+            payload[f.key] = f.type === 'boolean' ? el.checked : f.type === 'number' ? Number(el.value) : el.value;
+        });
         try {
             const res = await fetch('/spectrum-graph-plugin/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             showToast(res.ok ? 'Settings saved.' : 'Save failed (' + res.status + ').', !res.ok);
@@ -546,6 +897,7 @@ function customRouter() {
     });
 
     renderBands();
+    renderRanges();
 </script>
 </body>
 </html>`;
@@ -595,9 +947,14 @@ let tuningStepSize = 50; // kHz
 let tuningBandwidth = 56; // kHz
 let fmLowerLimit = 86; // Match dummyFreqStart value (default: 86)
 let customRanges = ""; // Custom ranges
+let disableHfSpanLimit = false; // Allow custom HF ranges wider than 3 MHz
 let warnIncompleteData = false; // Warn about incomplete data
 let logLocalCommands = true; // Log locally sent commands
 let clearGraphOnScan = true; // Clear graph data when a new scan begins
+let progressiveScanEnabled = true; // Broadcast scan points live as they arrive
+let progressiveScanSweepLine = 'line'; // 'none' | 'line' | 'line-dot' | 'dot' | 'glow'
+let progressiveScanBatchMs = 100;
+let progressiveScanReferenceClients = 100;
 
 const DEFAULT_DEFINED_BANDS = [
     { name: 'LW',   start: 144,   end: 351,   step: 1,  bw: 3  },
@@ -621,6 +978,62 @@ const DEFAULT_DEFINED_BANDS = [
 ];
 let definedBands = DEFAULT_DEFINED_BANDS.map(b => ({ ...b }));
 
+// Client-side settings. One entry generates the config key, the settings field, validation and the value sent to clients
+const CLIENT_SETTINGS = [
+    { key: 'enableMouseClickToTune', type: 'boolean', def: true, section: 'interface',
+      label: 'Mouse Click to Tune', hint: 'Allow the mouse to tune by clicking inside the graph.' },
+    { key: 'enableMouseScrollWheel', type: 'boolean', def: true, section: 'interface',
+      label: 'Mouse Scroll Wheel to Tune', hint: 'Allow the mouse scroll wheel to tune while the pointer is inside the graph.' },
+    { key: 'correctTooltipPeaks', type: 'boolean', def: true, section: 'interface',
+      label: 'Correct Tooltip Peaks', hint: 'Corrects inconsistent signal-peak tooltips caused by FM and 50 kHz scan steps.' },
+    { key: 'displayScanningStatus', type: 'boolean', def: true, section: 'interface',
+      label: 'Display Scanning Status', hint: 'Default state of the spinning icon shown during a scan update. Saved User preference overrides.' },
+    { key: 'adjustScaleToOutline', type: 'boolean', def: true, section: 'interface',
+      label: 'Adjust Scale to Outline', hint: 'Adjust the auto baseline to the hold/relative outline instead of clamping it.' },
+    { key: 'decimalMarkerRoundOff', type: 'boolean', def: true, section: 'interface',
+      label: 'Round Off Decimal Markers', hint: 'Round frequency markers to the nearest integer. Only applies to scan spans wider than 10 MHz.' },
+    { key: 'snapMarkersToRoundValues', type: 'boolean', def: true, section: 'interface',
+      label: 'Snap Markers to Round Values', hint: 'Place markers on round values, else align them to the start of ranges below the FM band.' },
+    { key: 'hideRotatorContainer', type: 'boolean', def: false, section: 'interface',
+      label: 'Hide Rotator Container', hint: 'Hides the PST Rotator plugin container while the graph is open.' },
+    { key: 'backgroundBlurPixels', type: 'number', def: 5, min: 0, max: 50, step: 1, section: 'interface',
+      label: 'Background Blur', hint: 'Canvas background blur in pixels. Set to 0 to disable.' },
+    { key: 'scanCoverageOpacity', type: 'number', def: 0.2, min: 0, max: 1, step: 0.01, section: 'interface',
+      label: 'Scan Coverage Opacity', hint: "Opacity of the Scanner plugin's 'defaultScannerMode' coverage overlay." },
+    { key: 'defaultLanguage', type: 'string', def: 'en', section: 'interface',
+      label: 'Default Language', hint: 'Used when the browser language has no translation available. Available: en, en_us, es, fr, de, nl, ru, pl, cs, hu.' },
+    { key: 'mwTuningStep', type: 'number', def: 0, min: 0, max: 10, step: 1, section: 'advanced',
+      label: 'MW Tuning Step', hint: "MW tuning step in kHz (9 or 10). Set to 0 to use the 'Enhanced Tuning' plugin preference." },
+    { key: 'lastAntennaScanNoticeMinutes', type: 'number', def: 30, min: 0, max: 1440, step: 1, section: 'advanced',
+      label: 'Outdated Scan Notice', hint: 'Periodically display a notice if the last scan of any antenna is older than this many minutes. Set to 0 to disable.' },
+    { key: 'antennaScanNoticeTimeoutSeconds', type: 'number', def: 10, min: 1, max: 120, step: 1, section: 'advanced',
+      label: 'Notice Display Time', hint: 'How long the outdated scan notice stays on screen, in seconds.' },
+    { key: 'antennaScanNoticeIntervalSeconds', type: 'number', def: 180, min: 10, max: 3600, step: 10, section: 'advanced',
+      label: 'Notice Interval', hint: 'How often the outdated scan check repeats, in seconds.' },
+    { key: 'calRfLevelOffset', type: 'number', def: 0, min: -50, max: 50, step: 0.01, section: 'advanced',
+      label: 'Signal Offset', hint: 'Overall signal calibration offset in dB, to compensate for feeder loss or gain.' },
+    { key: 'cal90000', type: 'number', def: 0, min: -50, max: 50, step: 0.1, section: 'advanced',
+      label: 'Calibration 87-93 MHz', hint: 'Signal calibration in dB. Requires external hardware to set a known signal strength.' },
+    { key: 'cal95500', type: 'number', def: 0, min: -50, max: 50, step: 0.1, section: 'advanced',
+      label: 'Calibration 93-98 MHz', hint: 'Signal calibration in dB.' },
+    { key: 'cal100500', type: 'number', def: 0, min: -50, max: 50, step: 0.1, section: 'advanced',
+      label: 'Calibration 98-103 MHz', hint: 'Signal calibration in dB.' },
+    { key: 'cal105500', type: 'number', def: 0, min: -50, max: 50, step: 0.1, section: 'advanced',
+      label: 'Calibration 103-108 MHz', hint: 'Signal calibration in dB.' },
+];
+
+const clientSettings = {};
+CLIENT_SETTINGS.forEach(s => { clientSettings[s.key] = s.def; });
+
+function coerceClientSetting(s, value) {
+    if (s.type === 'boolean') return typeof value === 'boolean' ? value : s.def;
+    if (s.type === 'number') {
+        const n = Number(value);
+        return (value === '' || value === null || !Number.isFinite(n)) ? s.def : Math.min(s.max, Math.max(s.min, n));
+    }
+    return (typeof value === 'string' && value.trim() !== '') ? value.trim().slice(0, 16) : s.def;
+}
+
 const defaultConfig = {
     rescanDelay: 3,
     tuningRange: 0,
@@ -628,14 +1041,20 @@ const defaultConfig = {
     tuningBandwidth: 56,
     fmLowerLimit: 86,
     customRanges: "",
+    disableHfSpanLimit: false,
     warnIncompleteData: false,
     logLocalCommands: true,
     clearGraphOnScan: true,
+    progressiveScanEnabled: true,
+    progressiveScanSweepLine: 'line',
+    progressiveScanBatchMs: 100,
+    progressiveScanReferenceClients: 100,
+    ...Object.fromEntries(CLIENT_SETTINGS.map(s => [s.key, s.def])),
     definedBands: DEFAULT_DEFINED_BANDS,
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'warnIncompleteData', 'logLocalCommands', 'clearGraphOnScan', 'definedBands'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'disableHfSpanLimit', 'warnIncompleteData', 'logLocalCommands', 'clearGraphOnScan', 'progressiveScanEnabled', 'progressiveScanSweepLine', 'progressiveScanBatchMs', 'progressiveScanReferenceClients', ...CLIENT_SETTINGS.map(s => s.key), 'definedBands'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -679,9 +1098,16 @@ function loadConfigFile(isReloaded) {
             tuningBandwidth = !isNaN(Number(config.tuningBandwidth)) ? Number(config.tuningBandwidth) : defaultConfig.tuningBandwidth;
             fmLowerLimit = !isNaN(Number(config.fmLowerLimit)) ? Number(config.fmLowerLimit) : defaultConfig.fmLowerLimit;
             customRanges = typeof config.customRanges === 'string' ? config.customRanges : '';
+            disableHfSpanLimit = typeof config.disableHfSpanLimit === 'boolean' ? config.disableHfSpanLimit : defaultConfig.disableHfSpanLimit;
             warnIncompleteData = typeof config.warnIncompleteData === 'boolean' ? config.warnIncompleteData : defaultConfig.warnIncompleteData;
             logLocalCommands = typeof config.logLocalCommands === 'boolean' ? config.logLocalCommands : defaultConfig.logLocalCommands;
             clearGraphOnScan = typeof config.clearGraphOnScan === 'boolean' ? config.clearGraphOnScan : defaultConfig.clearGraphOnScan;
+            progressiveScanEnabled = typeof config.progressiveScanEnabled === 'boolean' ? config.progressiveScanEnabled : defaultConfig.progressiveScanEnabled;
+            progressiveScanSweepLine = VALID_SWEEP_LINES.includes(config.progressiveScanSweepLine) ? config.progressiveScanSweepLine : defaultConfig.progressiveScanSweepLine;
+            progressiveScanBatchMs = !isNaN(Number(config.progressiveScanBatchMs)) ? Math.min(2000, Math.max(20, Number(config.progressiveScanBatchMs))) : defaultConfig.progressiveScanBatchMs;
+            progressiveScanReferenceClients = !isNaN(Number(config.progressiveScanReferenceClients)) ? Math.min(100, Math.max(1, Number(config.progressiveScanReferenceClients))) : defaultConfig.progressiveScanReferenceClients;
+
+            CLIENT_SETTINGS.forEach(s => { clientSettings[s.key] = coerceClientSetting(s, config[s.key]); });
 
             if (Array.isArray(config.definedBands) && config.definedBands.length > 0 &&
                 config.definedBands.every(b => b && typeof b.name === 'string' &&
@@ -693,6 +1119,7 @@ function loadConfigFile(isReloaded) {
             }
 
             structureCustomRanges();
+            updateSpectrumData({ progressiveScanEnabled, progressiveScanSweepLine, progressiveScanBatchMs, tuningStepSize, tuningBandwidth });
 
             // Save the updated config if there were any modifications
             if (configModified) {
@@ -992,7 +1419,9 @@ function handlePluginConnection(ws, req) {
                 const status = message.value?.status;
 
                 if (validScans.includes(status)) {
-                    if (!isFirstRun && !isScanRunning) restartScan(status);
+                    if (!isFirstRun && !isScanRunning) {
+                        restartScan(status, msg => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); });
+                    }
                 } else {
                     const msgStr = JSON.stringify(message);
                     logError(`${pluginName} unknown command received: ${msgStr.length > 128 ? msgStr.slice(0, 128) + '…' : msgStr}`);
@@ -1100,7 +1529,8 @@ async function ExtraWebSocket() {
                         const status = message.value?.status;
 
                         if (validScans.includes(status)) {
-                            if (!isFirstRun && !isScanRunning) restartScan(status);
+                            // Relay mode can't tell clients apart, so the notice goes to all of them
+                            if (!isFirstRun && !isScanRunning) restartScan(status, msg => sendSigArray(null, {}, msg));
                         } else {
                             const msgStr = JSON.stringify(message);
                             logError(`${pluginName} unknown command received: ${msgStr.length > 128 ? msgStr.slice(0, 128) + '…' : msgStr}`);
@@ -1148,6 +1578,41 @@ if (useHooks && wss && pluginsWss) {
 // Intercepted data storage
 let interceptedUData = null;
 let interceptedZData = null;
+
+let liveScanBuffer = '';
+let liveScanCapturing = false;
+let liveScanEventCount = 0; // Raw-data events contributing to the current capture - 1 means the whole scan arrived as a single burst
+let pendingScanPoints = [];
+let scanBatchTimer = null;
+let throttleWarnedThisScan = false;
+
+const PROGRESSIVE_SCAN_MAX_BATCH_MS = 5000; // Hard ceiling regardless of client count
+
+function scheduleScanBatchFlush() {
+    if (scanBatchTimer) return;
+
+    // Above the reference count, stretch the interval proportionally to keep total bandwidth roughly flat
+    const clientCount = pluginClients.size;
+    const isThrottled = clientCount > progressiveScanReferenceClients;
+    let effectiveBatchMs = isThrottled
+        ? progressiveScanBatchMs * (clientCount / progressiveScanReferenceClients)
+        : progressiveScanBatchMs;
+    effectiveBatchMs = Math.min(effectiveBatchMs, PROGRESSIVE_SCAN_MAX_BATCH_MS);
+
+    if (isThrottled && !throttleWarnedThisScan) {
+        throttleWarnedThisScan = true;
+        logWarn(`[${pluginName}] ${clientCount} /data_plugins connections open, batch interval stretched to ${Math.round(effectiveBatchMs)}ms`);
+    }
+
+    scanBatchTimer = setTimeout(flushPendingScanPoints, effectiveBatchMs);
+}
+
+function flushPendingScanPoints() {
+    scanBatchTimer = null;
+    if (pendingScanPoints.length === 0) return;
+    broadcastToPluginClients(JSON.stringify({ type: 'sigArrayPoints', value: pendingScanPoints }));
+    pendingScanPoints = [];
+}
 
 // Wrapper to intercept 'U' data
 const originalHandleData = datahandlerReceived.handleData;
@@ -1272,6 +1737,117 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
     // Call original handleData function
     originalHandleData(wss, receivedData, rdsWss);
 };
+
+// ########## TO BE REMOVED AFTER RAW SERIAL DATA IS NATIVELY SUPPORTED ##########
+
+// For webservers without plugins_api.onRawSerialData (fm-dx-webserver PR #212)
+// adds the same API to plugins_api
+function installRawSerialDataFallback() {
+    if (!pluginsApi || typeof pluginsApi.onRawSerialData === 'function' || typeof pluginsApi.emitRawSerialData === 'function') return;
+
+    const helpers = require(rootDir + '/server/helpers');
+    if (typeof helpers.resolveDataBuffer !== 'function') return;
+
+    const listeners = new Set();
+
+    pluginsApi.onRawSerialData = handler => { listeners.add(handler); };
+    pluginsApi.offRawSerialData = handler => { listeners.delete(handler); };
+    pluginsApi.emitRawSerialData = data => {
+        for (const handler of listeners) {
+            try {
+                handler(data);
+            } catch (error) {
+                logError(`[plugins_api] Raw serial data handler error: ${error.message}`);
+            }
+        }
+    };
+
+    // Every chunk from the serial port and xdrd passes through this function
+    const originalResolveDataBuffer = helpers.resolveDataBuffer;
+    helpers.resolveDataBuffer = function (data, ...rest) {
+        const result = originalResolveDataBuffer.call(this, data, ...rest);
+        pluginsApi.emitRawSerialData(data);
+        return result;
+    };
+
+    logInfo(`[${pluginName}] Using built-in raw serial data hook for progressive scan`);
+}
+
+try {
+    installRawSerialDataFallback();
+} catch (error) {
+    logError(`[${pluginName}] Raw serial data hook failed: ${error.message}`);
+}
+
+// ###############################################################################
+
+const progressiveScanAvailable = !!(pluginsApi && typeof pluginsApi.onRawSerialData === 'function');
+updateSpectrumData({ progressiveScanAvailable });
+
+if (progressiveScanAvailable) {
+    pluginsApi.onRawSerialData((data) => {
+        try {
+            if (progressiveScanEnabled && isScanRunning) {
+                liveScanBuffer += data.toString();
+
+                if (!liveScanCapturing) {
+                    const uMatch = liveScanBuffer.match(/(?:^|\n)U/);
+                    if (uMatch) {
+                        liveScanCapturing = true;
+                        liveScanEventCount = 0;
+                        liveScanBuffer = liveScanBuffer.slice(uMatch.index + uMatch[0].length);
+                    } else if (liveScanBuffer.length > 4096) {
+                        liveScanBuffer = liveScanBuffer.slice(-256); // avoid unbounded growth from unrelated traffic
+                    }
+                }
+
+                if (liveScanCapturing) {
+                    liveScanEventCount++;
+                    const newlineIdx = liveScanBuffer.indexOf('\n');
+                    const scanEnded = newlineIdx !== -1;
+                    const workingStr = scanEnded ? liveScanBuffer.slice(0, newlineIdx) : liveScanBuffer;
+                    const parts = workingStr.split(',');
+                    const completeParts = scanEnded ? parts : parts.slice(0, -1);
+
+                    for (const part of completeParts) {
+                        const [freqStr, sigStr] = part.split('=');
+                        const freq = Number(freqStr);
+                        const sig = Number(sigStr);
+                        if (!Number.isFinite(freq) || !Number.isFinite(sig)) continue;
+
+                        pendingScanPoints.push({ freq: (freq / 1000).toFixed(3), sig: sig.toFixed(1) });
+                    }
+
+                    liveScanBuffer = scanEnded ? '' : (parts[parts.length - 1] || '');
+                    if (scanEnded) {
+                        liveScanCapturing = false;
+                        if (scanBatchTimer) clearTimeout(scanBatchTimer);
+
+                        if (liveScanEventCount <= 1) {
+                            progressiveSingleBurstScans++;
+                            logWarn(`[${pluginName}] Scan data arrived as single burst, if this persists, disable Progressive Scan in settings.`);
+                        } else {
+                            progressiveSingleBurstScans = 0; // One streamed scan proves the data path works
+                        }
+
+                        flushPendingScanPoints();
+                    } else if (pendingScanPoints.length) {
+                        scheduleScanBatchFlush();
+                    }
+                }
+            } else if (liveScanBuffer || liveScanCapturing) {
+                liveScanBuffer = '';
+                liveScanCapturing = false;
+            }
+        } catch (error) {
+            logError(`[${pluginName}] Progressive scan parsing failed, skipping:`, error.message);
+            liveScanBuffer = '';
+            liveScanCapturing = false;
+        }
+    });
+} else {
+    logWarn(`[${pluginName}] plugins_api.onRawSerialData unavailable, progressive scan disabled, update FM-DX Webserver`);
+}
 
 // Configure antennas
 let antennaCurrent; // Will remain 'undefined' if antenna switch is disabled
@@ -1406,8 +1982,9 @@ function startPluginStartup() {
 
         await new Promise(resolve => setTimeout(resolve, initialDelay));
 
-        // Remember startup antenna to restore after scanning
-        const startupAntenna = antennaCurrent ?? 0;
+        // Remember the tuner's current antenna to restore after scanning
+        const liveAntenna = Number(datahandlerReceived.dataToSend?.ant);
+        const startupAntenna = Number.isInteger(liveAntenna) && liveAntenna >= 0 ? liveAntenna : (antennaCurrent ?? 0);
 
         // Confirm startup antenna before first scan
         if (antennaSwitch) {
@@ -1489,6 +2066,38 @@ async function sendCommandToClient(command) {
     }
 }
 
+// Module firmware takes the bandwidth in Hz, radio firmware takes an index. Returns the index, or null on module firmware
+function sendBandwidthCommand(bandwidth) {
+    if (isModule) {
+        sendCommandToClient(`Sw${bandwidth === 3 ? 3000 : bandwidth * 1000}`);
+        return null;
+    }
+
+    let BWradio = 0;
+    if (bandwidth !== 3) {
+        switch (bandwidth) {
+            case 56: BWradio = 0; break;
+            case 64: BWradio = 26; break;
+            case 72: BWradio = 1; break;
+            case 84: BWradio = 28; break;
+            case 97: BWradio = 29; break;
+            case 114: BWradio = 3; break;
+            case 133: BWradio = 4; break;
+            case 151: BWradio = 5; break;
+            case 168: BWradio = 7; break;
+            case 184: BWradio = 8; break;
+            case 200: BWradio = 9; break;
+            case 217: BWradio = 10; break;
+            case 236: BWradio = 11; break;
+            case 254: BWradio = 12; break;
+            case 287: BWradio = 13; break;
+            case 311: BWradio = 15; break;
+        }
+    }
+    sendCommandToClient(`Sf${BWradio}`);
+    return BWradio;
+}
+
 // Begin scan
 async function startScan(command) {
     if (debug) console.log(command);
@@ -1520,9 +2129,6 @@ async function startScan(command) {
     if (isScanRunning) return;
 
     const SCALE = 1000;
-    const HF_LOWER_SCALED = 144;      // 0.144 MHz
-    const HF_UPPER_SCALED = 27000;    // 27.0 MHz
-    const OIRT_LOWER_SCALED = 64000;  // 64.0 MHz
 
     // Restrict to config tuning limit, else 0-108 MHz
     let tuningLimit = config.webserver.tuningLimit;
@@ -1631,33 +2237,7 @@ async function startScan(command) {
             sendCommandToClient(`Sb${tuningUpperLimitScan}`);
             sendCommandToClient(`Sc${activeStepSize}`);
             
-            if (isModule) {
-                sendCommandToClient(`Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}`);
-            } else {
-                let BWradio = 0;
-                if (activeBandwidth === 3) BWradio = 0;
-                else {
-                    switch (activeBandwidth) {
-                        case 56: BWradio = 0; break;
-                        case 64: BWradio = 26; break;
-                        case 72: BWradio = 1; break;
-                        case 84: BWradio = 28; break;
-                        case 97: BWradio = 29; break;
-                        case 114: BWradio = 3; break;
-                        case 133: BWradio = 4; break;
-                        case 151: BWradio = 5; break;
-                        case 168: BWradio = 7; break;
-                        case 184: BWradio = 8; break;
-                        case 200: BWradio = 9; break;
-                        case 217: BWradio = 10; break;
-                        case 236: BWradio = 11; break;
-                        case 254: BWradio = 12; break;
-                        case 287: BWradio = 13; break;
-                        case 311: BWradio = 15; break;
-                    }
-                }
-                sendCommandToClient(`Sf${BWradio}`);
-            }
+            const BWradio = sendBandwidthCommand(activeBandwidth);
             sendCommandToClient('S');
 
             structureCustomRanges();
@@ -1693,7 +2273,7 @@ async function startScan(command) {
         if (rangeLowerScaled < 30000) {
             if (rangeLowerScaled < 144) rangeLowerScaled = 144;
             if (rangeUpperScaled > 27000) rangeUpperScaled = 27000;
-            if (rangeUpperScaled - rangeLowerScaled > 3000) {
+            if (!disableHfSpanLimit && rangeUpperScaled - rangeLowerScaled > 3000) {
                 rangeUpperScaled = rangeLowerScaled + 3000;
                 logWarn(`${pluginName}: Custom AM range too large. Clamped to 3 MHz span.`);
             }
@@ -1706,37 +2286,21 @@ async function startScan(command) {
             activeBandwidth = rangeUpperScaled <= fmLowerLimitScaled ? 56 : tuningBandwidth;
         }
 
+        if (rangeUpperScaled <= rangeLowerScaled) {
+            isScanHalted(true);
+            logWarn(`${pluginName}: Custom range ${range.low}-${range.high} MHz falls outside the tuner's 0.144-27 and 64-108 MHz coverage.`);
+            return;
+        }
+
+        // Used below for the scan-success message's reported bounds
+        tuningLowerLimitScan = rangeLowerScaled;
+        tuningUpperLimitScan = rangeUpperScaled;
+
         sendCommandToClient(`Sa${rangeLowerScaled}`);
         sendCommandToClient(`Sb${rangeUpperScaled}`);
         sendCommandToClient(`Sc${activeStepSize}`);
         
-        if (isModule) {
-            sendCommandToClient(`Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}`);
-        } else {
-            let BWradio = 0;
-            if (activeBandwidth === 3) BWradio = 0;
-            else {
-                switch (activeBandwidth) {
-                    case 56: BWradio = 0; break;
-                    case 64: BWradio = 26; break;
-                    case 72: BWradio = 1; break;
-                    case 84: BWradio = 28; break;
-                    case 97: BWradio = 29; break;
-                    case 114: BWradio = 3; break;
-                    case 133: BWradio = 4; break;
-                    case 151: BWradio = 5; break;
-                    case 168: BWradio = 7; break;
-                    case 184: BWradio = 8; break;
-                    case 200: BWradio = 9; break;
-                    case 217: BWradio = 10; break;
-                    case 236: BWradio = 11; break;
-                    case 254: BWradio = 12; break;
-                    case 287: BWradio = 13; break;
-                    case 311: BWradio = 15; break;
-                }
-            }
-            sendCommandToClient(`Sf${BWradio}`);
-        }
+        sendBandwidthCommand(activeBandwidth);
 
         sendCommandToClient('S');
 
@@ -1750,10 +2314,18 @@ async function startScan(command) {
     scanStatus = { scanStatus: "scanning" };
     updateSpectrumData(scanStatus);
 
+    // Kept with the stored data so a client loading later can use the same axis as the scan that produced it
+    updateSpectrumData({
+        scanLowerFreq: tuningLowerLimitScan / SCALE,
+        scanUpperFreq: tuningUpperLimitScan / SCALE
+    });
+
     // Notify clients scan was initiated
     const messageClient = {
         type: 'spectrum-graph-scan-success',
-        scanSuccess: true
+        scanSuccess: true,
+        scanLowerFreq: tuningLowerLimitScan / SCALE,
+        scanUpperFreq: tuningUpperLimitScan / SCALE
     };
 
     sendSigArray(null, {}, messageClient);
@@ -1769,6 +2341,12 @@ async function startScan(command) {
     interceptedUData = null;
     interceptedZData = null;
     sigArray = [];
+    liveScanBuffer = '';
+    liveScanCapturing = false;
+    if (scanBatchTimer) clearTimeout(scanBatchTimer);
+    scanBatchTimer = null;
+    pendingScanPoints = [];
+    throttleWarnedThisScan = false;
 
     // Wait for U value using async
     async function waitForUValue(timeout = 8000 + (isFirstRun ? 22000 : 0), interval = 10) {
@@ -1898,11 +2476,15 @@ function isScanHalted(status) {
     }
 }
 
-function restartScan(command) {
+// 'notify' sends the cooldown notice back to whoever asked, so other clients aren't told about a scan they never requested
+function restartScan(command, notify) {
     nowTime = Date.now();
 
     if (!isFirstRun && nowTime - lastRestartTime < (rescanDelay * 1000)) {
-        logWarn(`[${pluginName}] Cooldown mode, can retry in ${(((rescanDelay * 1000) - (nowTime - lastRestartTime)) / 1000).toFixed(1)} seconds.`);
+        const retryIn = (((rescanDelay * 1000) - (nowTime - lastRestartTime)) / 1000).toFixed(1);
+        logWarn(`[${pluginName}] Cooldown mode, can retry in ${retryIn} seconds.`);
+
+        if (notify) notify({ type: 'spectrum-graph-cooldown', value: Number(retryIn) });
 
         scanStatus = { scanStatus: "rejected" };
         updateSpectrumData(scanStatus);
