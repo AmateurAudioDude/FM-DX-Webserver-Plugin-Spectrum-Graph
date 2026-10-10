@@ -19,7 +19,7 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 
 > [!IMPORTANT]
 > 
-> ## Attention xdrd users
+> ## Progressive Scan
 >
 > Spectrum Graph v1.5.0 introduces progressive scanning, where the graph fills in live as the scan sweeps across the band.
 >
