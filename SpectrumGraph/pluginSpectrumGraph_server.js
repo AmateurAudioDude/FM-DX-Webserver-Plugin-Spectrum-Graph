@@ -2478,6 +2478,12 @@ function isScanHalted(status) {
 
 // 'notify' sends the cooldown notice back to whoever asked, so other clients aren't told about a scan they never requested
 function restartScan(command, notify) {
+    // startScan() clears the shared buffers, so a concurrent scan would disrupt the one already running
+    if (isFirstRun || isScanRunning) {
+        logWarn(`[${pluginName}] Scan request ignored, ${isScanRunning ? 'a scan is already running' : 'first run is still in progress'}.`);
+        return;
+    }
+
     nowTime = Date.now();
 
     if (!isFirstRun && nowTime - lastRestartTime < (rescanDelay * 1000)) {
