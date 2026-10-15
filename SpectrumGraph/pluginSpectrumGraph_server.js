@@ -184,7 +184,8 @@ function normalizeIp(ip) {
 
 // Function to create custom router
 let spectrumData = {
-    sd: null
+    sd: null,
+    isFirstRun // Prevent undefined before the startup sequence sets it
 };
 
 const UPDATE_CHECK_TTL = 6 * 60 * 60 * 1000;
@@ -1900,6 +1901,7 @@ function startPluginStartup() {
     logInfo(`[${pluginName}] Waiting for ${deviceName}...`);
     // First run begins once default frequency is detected	
     isFirstRun = true;
+    updateSpectrumData({ isFirstRun });
     isFirstFirmwareNotice = false;
     isModule = true;
 
@@ -2046,6 +2048,7 @@ function startPluginStartup() {
         }
 
         isFirstRun = false;
+        updateSpectrumData({ isFirstRun });
         logInfo(`[${pluginName}] Scan button unlocked${!restartCounter ? ', first run complete' : ''}.`);
     }
 }
