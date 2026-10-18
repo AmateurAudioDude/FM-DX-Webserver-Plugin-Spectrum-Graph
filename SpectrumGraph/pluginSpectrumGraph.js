@@ -1046,7 +1046,7 @@ function createAboutMenuItems() {
     return [
         { label: getTranslatedText('version'), value: pluginVersion, keepOpen: true },
         { label: getTranslatedText('fmStepSize'), value: `${tuningStepSizeClient} kHz`, keepOpen: true },
-        { label: getTranslatedText('fmBandwidth'), value: `${tuningBandwidthClient} kHz`, keepOpen: true }
+        { label: getTranslatedText('fmBandwidth'), value: tuningBandwidthClient === 0 ? `Auto` : `${tuningBandwidthClient} kHz`, keepOpen: true }
     ];
 }
 
@@ -3318,8 +3318,8 @@ async function initializeGraph(checkIfScanningOnly = false, returnAfterAntennaCh
         if (data && typeof data.tuningStepSize === 'number' && data.tuningStepSize > 0) {
             tuningStepSizeClient = data.tuningStepSize;
         }
-        if (data && typeof data.tuningBandwidth === 'number' && data.tuningBandwidth > 0) {
-            tuningBandwidthClient = data.tuningBandwidth;
+        if (data && typeof data.tuningBandwidth === 'number' && data.tuningBandwidth >= 0) {
+            tuningBandwidthClient = data.tuningBandwidth; // 0 is the tuner's automatic bandwidth
         }
 
         if (data && typeof data.progressiveScanEnabled === 'boolean') {
