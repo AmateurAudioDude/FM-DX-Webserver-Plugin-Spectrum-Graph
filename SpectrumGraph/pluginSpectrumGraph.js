@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.5.0 by AAD
+    Spectrum Graph v1.5.1 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 */
 
@@ -46,7 +46,7 @@ const TOOLTIP_WRAP_CHECK_DELAY = 300;                                       // I
 const TOOLTIP_LINE_HEIGHT = 35;                                             // In px, height of a single-line tooltip
 
 // const plugin update checker variables
-const pluginVersion = '1.5.0';
+const pluginVersion = '1.5.1';
 const pluginName = "Spectrum Graph";
 const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
 const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
@@ -1545,7 +1545,7 @@ function createButton(buttonId) {
                 };
 
                 if (spectrumButtonEl) {
-                    if (typeof $ === 'function') $(spectrumButtonEl).off('mouseenter mouseleave');
+                    if (typeof $ === 'function') $(spectrumButtonEl).off('mouseenter mouseleave focusin focusout');
 
                     spectrumButtonEl.addEventListener('mouseenter', () => {
                         if (!window.matchMedia('(hover: hover)').matches) return;

@@ -22,18 +22,36 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 > If your tuner connects to FM-DX Webserver through xdrd, progressive scanning needs a modified version of xdrd. The standard xdrd sends scan data in one burst, so the graph still appears all at once at the end.
 >
 > To use progressive scanning with xdrd:
+>
+> ### 🪟 Windows
 > 
-> 1. Download the modified xdrd: https://github.com/AmateurAudioDude/xdrd/releases
-> 2. Start xdrd with the `-S` flag. This makes it send scan data as each point is measured, just like a direct serial connection.
-> 3. Enable Progressive Scan in the Spectrum Graph settings.
+> * Download the modified xdrd [here](https://github.com/AmateurAudioDude/xdrd/releases)
+> 
+> ### 🐧 Linux
+> 
+> * Follow the guide [here](https://github.com/NoobishSVK/fm-dx-webserver/wiki/Linux-Installation#installation-of-xdrd), replacing the URL with ```https://github.com/AmateurAudioDude/xdrd.git```
+>
+> ### Rest of guide
+> 
+> * Start xdrd with your usual parameters, including the `-S` flag at the beginning. This makes it send scan data as each point is measured, just like a direct serial connection.  
+> * Enable `Progressive Scan` in the Spectrum Graph admin settings.
 >
 > Without the modified xdrd, scanning works exactly as before, and the server log shows "Scan data arrived as single burst" when Progressive Scan is enabled. Direct (serial) connections need no changes.
 
 > [!IMPORTANT]
 > For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20.9** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32/releases). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
 
+v1.5.1
+------
+* Added XDR filter widths
+* Added Si47XX filter widths, step warning and scan time estimates
+* Added unsupported bandwidth warning
+* Added 'Send Both Bandwidth Commands' option
+* Added 'Disable HF Scanning' option
+* Fixed 'Auto' bandwidth setting
+
 v1.5.0
--------------
+------
 * Added Progressive Scan, graph updates live as a scan sweeps
 * Added right-click menu overhaul with Language, Settings and About submenus
 * Added "Open on Page Load", "Hide Extra Buttons" and "Color Style" settings

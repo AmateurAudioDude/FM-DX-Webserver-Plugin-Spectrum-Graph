@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.5.0 by AAD
+    Spectrum Graph v1.5.1 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -7,15 +7,18 @@
 
 'use strict';
 
-const pluginVersion = '1.5.0';
+const pluginVersion = '1.5.1';
 
 const AUTO_RESTART_ON_CONNECTION_ERROR = true;
 const FORCE_FALLBACK = false;
+const XDR_SENDS_HZ_FORM = true; // XDR tuners also receive 'Sw' from XDR-GTK, set false to send only 'Sf'
 const CHECK_FOR_UPDATES = true;
 
 const pluginName = "Spectrum Graph";
 const pluginHomepageUrl = "https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph";
 const pluginUpdateUrl = "https://raw.githubusercontent.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/refs/heads/main/SpectrumGraph/pluginSpectrumGraph.js";
+
+const debug = false;
 
 // Library imports
 const express = require('express');
@@ -122,7 +125,6 @@ try {
 }
 
 // const variables
-const debug = false;
 const validScans = ['scan', 'scan-0', 'scan-1', 'scan-2'];
 const VALID_SWEEP_LINES = ['none', 'line', 'line-dot', 'dot', 'glow'];
 const webserverPort = config.webserver.webserverPort || 8080;
@@ -148,9 +150,11 @@ let isDeviceCompatible = false;
 let sigArray = [];
 let progressiveSingleBurstScans = 0; // Consecutive scans that arrived in one chunk, so nothing could be streamed
 let cachedUpdateCheck = null;
+let scanSequence = '';
 
 // Check if module or radio firmware
 let isModule = true; // TEF668X module
+let isFirmwareDetected = false; // Until a 'U' response arrives, isModule is a guess
 let isFirstFirmwareNotice = false;
 let firmwareType = 'unknown';
 
@@ -164,6 +168,8 @@ if (deviceConfig === 'tef') {
 } else if (deviceConfig === 'xdr') {
     deviceName = 'XDR';
     isDeviceCompatible = true;
+    isModule = false; // Declared XDR
+    firmwareType = 'XDR';
 } else if (deviceConfig === 'sdr') {
     deviceName = 'SDR';
 } else if (deviceConfig === 'si47xx') {
@@ -174,6 +180,9 @@ if (deviceConfig === 'tef') {
     deviceName = 'TEF668X';
     isDeviceCompatible = true;
 }
+
+// Si47XX keeps the limited compatibility notice but has a known filter table
+const hasFilterTable = isDeviceCompatible || deviceConfig === 'si47xx';
 
 // Normalise IP address
 function normalizeIp(ip) {
@@ -243,6 +252,8 @@ function customRouter() {
                 tuningBandwidth,
                 customRanges,
                 disableHfSpanLimit,
+                disableHfScanning,
+                sendBothBandwidthCommands,
                 warnIncompleteData,
                 logLocalCommands,
                 clearGraphOnScan,
@@ -270,6 +281,8 @@ function customRouter() {
                 fmLowerLimit:       !isNaN(Number(body.fmLowerLimit))       ? Number(body.fmLowerLimit)       : fmLowerLimit,
                 customRanges:       typeof body.customRanges === 'string'   ? body.customRanges               : customRanges,
                 disableHfSpanLimit: typeof body.disableHfSpanLimit === 'boolean' ? body.disableHfSpanLimit    : disableHfSpanLimit,
+                disableHfScanning:  typeof body.disableHfScanning === 'boolean'  ? body.disableHfScanning     : disableHfScanning,
+                sendBothBandwidthCommands: typeof body.sendBothBandwidthCommands === 'boolean' ? body.sendBothBandwidthCommands : sendBothBandwidthCommands,
                 warnIncompleteData: typeof body.warnIncompleteData === 'boolean' ? body.warnIncompleteData    : warnIncompleteData,
                 logLocalCommands:   typeof body.logLocalCommands === 'boolean'   ? body.logLocalCommands      : logLocalCommands,
                 clearGraphOnScan:   typeof body.clearGraphOnScan === 'boolean'   ? body.clearGraphOnScan      : clearGraphOnScan,
@@ -301,38 +314,28 @@ function customRouter() {
         const cfg = {
             ...clientSettings,
             rescanDelay, tuningRange, tuningStepSize, tuningBandwidth,
-            fmLowerLimit, customRanges, disableHfSpanLimit, warnIncompleteData, logLocalCommands, clearGraphOnScan,
+            fmLowerLimit, customRanges, disableHfSpanLimit, disableHfScanning, sendBothBandwidthCommands, warnIncompleteData, logLocalCommands, clearGraphOnScan,
             progressiveScanEnabled, progressiveScanSweepLine, progressiveScanBatchMs, progressiveScanReferenceClients,
             definedBands,
             tuningUpperLimit: (config?.webserver?.tuningLimit === false ? 108 : Number(config?.webserver?.tuningUpperLimit)) || 108,
         };
 
+        // Only the device's own widths are listed
+        const fmWidths = deviceConfig === 'si47xx' ? SI47XX_WIDTHS : Object.keys(deviceConfig === 'xdr' ? FILTER_INDEX_XDR : FILTER_INDEX_TEF)
+            .map(Number).sort((a, b) => a - b);
+        const amWidths = deviceConfig === 'si47xx' ? SI47XX_AM_WIDTHS : TEF_AM_WIDTHS;
+        const edgeLabel = (list, i, narrow, wide) => i === 0 ? ` ${narrow}` : i === list.length - 1 ? ` ${wide}` : '';
+
         const bwOptions = [
-            { val: 56, label: '56 kHz (FM narrow)' },
-            { val: 64, label: '64 kHz' },
-            { val: 72, label: '72 kHz' },
-            { val: 84, label: '84 kHz' },
-            { val: 97, label: '97 kHz' },
-            { val: 114, label: '114 kHz' },
-            { val: 133, label: '133 kHz' },
-            { val: 151, label: '151 kHz' },
-            { val: 168, label: '168 kHz' },
-            { val: 184, label: '184 kHz' },
-            { val: 200, label: '200 kHz' },
-            { val: 217, label: '217 kHz' },
-            { val: 236, label: '236 kHz' },
-            { val: 254, label: '254 kHz' },
-            { val: 287, label: '287 kHz' },
-            { val: 311, label: '311 kHz (FM wide)' },
-            { val: 3,  label: 'AM 3 kHz (narrow)' },
-            { val: 4,  label: 'AM 4 kHz' },
-            { val: 6,  label: 'AM 6 kHz' },
-            { val: 8,  label: 'AM 8 kHz (wide)' },
+            ...fmWidths.map((w, i) => ({ val: w, label: `${w} kHz${edgeLabel(fmWidths, i, '(FM narrow)', '(FM wide)')}` })),
+            ...amWidths.map((w, i) => ({ val: w, label: `AM ${w} kHz${edgeLabel(amWidths, i, '(narrow)', '(wide)')}` })),
         ];
 
         const bwOptionsHtml = bwOptions.map(o => `<option value="${o.val}">${o.label}</option>`).join('');
 
         const bandsJson = JSON.stringify(cfg.definedBands);
+
+        const supportedBandwidths = fmWidths.join(', ');
 
         const scanIssue = progressiveScanIssue();
         const isUpdateAvailable = latestVersion && latestVersion !== pluginVersion;
@@ -489,16 +492,28 @@ ${bannersHtml}
                 <div class="field-control"><input type="number" id="tuningRange" value="${cfg.tuningRange}" min="0" step="0.1"></div>
             </div>
             <div class="field-row">
-                <div><div class="field-label">FM Step Size</div><div class="field-hint">Tuning step size, in kHz. Recommended values are either 50 or 100.</div></div>
+                <div><div class="field-label">FM Step Size</div><div class="field-hint">Tuning step size, in kHz. Recommended values are either 50 or 100.${deviceConfig === 'si47xx' ? `<br>${deviceName} tunes FM in 10 kHz increments.` : ''}</div></div>
                 <div class="field-control"><input type="number" id="tuningStepSize" value="${cfg.tuningStepSize}" min="1" step="1"></div>
             </div>
             <div class="field-row">
-                <div><div class="field-label">FM Bandwidth</div><div class="field-hint">Filter bandwidth for FM scans in kHz.<br>Supported bandwidth values are 56, 64, 72, 84, 97, 114, 133, 151, 168, 184, 200, 217, 236, 254, 287, and 311.</div></div>
+                <div><div class="field-label">FM Bandwidth</div><div class="field-hint">Filter bandwidth for FM scans in kHz. Set to 0 for the tuner's automatic bandwidth.${hasFilterTable ? `<br>Supported values for ${deviceName}: ${supportedBandwidths}.` : ''}</div></div>
                 <div class="field-control"><input type="number" id="tuningBandwidth" value="${cfg.tuningBandwidth}" min="0" step="1"></div>
             </div>
             <div class="field-row">
                 <div><div class="field-label">FM Lower Limit</div><div class="field-hint">Lower edge of the FM band in MHz to scan. Default value is 86.</div></div>
                 <div class="field-control"><input type="number" id="fmLowerLimit" value="${cfg.fmLowerLimit}" min="64" max="108" step="0.1"></div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Send Both Bandwidth Commands</div><div class="field-hint">Sends the bandwidth as both an index (<b>Sf</b>) and in Hz (<b>Sw</b>) when a scan starts, instead of whichever one suits the detected firmware.<br>Enable only if your tuner ignores the bandwidth during scans.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="sendBothBandwidthCommands" ${cfg.sendBothBandwidthCommands ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+            <div class="field-row">
+                <div><div class="field-label">Disable HF Scanning</div><div class="field-hint">Blocks scans below 30 MHz, including LW, MW, SW and custom HF ranges.</div></div>
+                <div class="field-control">
+                    <label class="toggle"><input type="checkbox" id="disableHfScanning" ${cfg.disableHfScanning ? 'checked' : ''}><span class="toggle-track"></span></label>
+                </div>
             </div>
             <div class="field-row">
                 <div><div class="field-label">Estimated Scan Time</div><div class="field-hint">For the main Scan button, using the tuner's upper limit of ${cfg.tuningUpperLimit} MHz.<br>A full band scan covers the FM band or the range below it, depending on where the radio is currently tuned.</div></div>
@@ -549,7 +564,7 @@ ${bannersHtml}
                 </div>
             </div>
             <div class="field-row">
-                <div><div class="field-label">Clear Graph Data on Scan</div><div class="field-hint">Clear the spectrum graph data when a new scan begins.</div></div>
+                <div><div class="field-label">Clear Graph Data on Scan</div><div class="field-hint">Clear the spectrum graph data when a new scan begins.<br>Note: This clears graph data, not the graph canvas.</div></div>
                 <div class="field-control">
                     <label class="toggle"><input type="checkbox" id="clearGraphOnScan" ${cfg.clearGraphOnScan ? 'checked' : ''}><span class="toggle-track"></span></label>
                 </div>
@@ -614,7 +629,7 @@ ${clientFieldsHtml('advanced')}
 <script>
     const bwOptionsHtml = \`${bwOptionsHtml}\`;
     let bands = ${bandsJson};
-    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, disableHfSpanLimit: defaultConfig.disableHfSpanLimit, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, progressiveScanEnabled: defaultConfig.progressiveScanEnabled, progressiveScanSweepLine: defaultConfig.progressiveScanSweepLine, progressiveScanBatchMs: defaultConfig.progressiveScanBatchMs, progressiveScanReferenceClients: defaultConfig.progressiveScanReferenceClients, definedBands: defaultConfig.definedBands, ...Object.fromEntries(CLIENT_SETTINGS.map(s => [s.key, s.def])) })};
+    const DEFAULTS = ${JSON.stringify({ rescanDelay: defaultConfig.rescanDelay, tuningRange: defaultConfig.tuningRange, tuningStepSize: defaultConfig.tuningStepSize, tuningBandwidth: defaultConfig.tuningBandwidth, fmLowerLimit: defaultConfig.fmLowerLimit, customRanges: defaultConfig.customRanges, disableHfSpanLimit: defaultConfig.disableHfSpanLimit, disableHfScanning: defaultConfig.disableHfScanning, sendBothBandwidthCommands: defaultConfig.sendBothBandwidthCommands, warnIncompleteData: defaultConfig.warnIncompleteData, logLocalCommands: defaultConfig.logLocalCommands, clearGraphOnScan: defaultConfig.clearGraphOnScan, progressiveScanEnabled: defaultConfig.progressiveScanEnabled, progressiveScanSweepLine: defaultConfig.progressiveScanSweepLine, progressiveScanBatchMs: defaultConfig.progressiveScanBatchMs, progressiveScanReferenceClients: defaultConfig.progressiveScanReferenceClients, definedBands: defaultConfig.definedBands, ...Object.fromEntries(CLIENT_SETTINGS.map(s => [s.key, s.def])) })};
     const CLIENT_FIELDS = ${JSON.stringify(CLIENT_SETTINGS.map(s => ({ key: s.key, type: s.type })))};
 
     function renderBands() {
@@ -632,7 +647,12 @@ ${clientFieldsHtml('advanced')}
                 <td><button class="btn-del" data-i="\${i}">Remove</button></td>
             \`;
             tbody.appendChild(tr);
-            tr.querySelector('select[data-field="bw"]').value = band.bw;
+            const bwSelect = tr.querySelector('select[data-field="bw"]');
+            bwSelect.value = band.bw;
+            if (bwSelect.value !== String(band.bw)) {
+                bwSelect.insertAdjacentHTML('afterbegin', \`<option value="\${band.bw}">\${band.bw} kHz (unsupported)</option>\`);
+                bwSelect.value = band.bw;
+            }
         });
         tbody.querySelectorAll('input.band-input').forEach(el => {
             el.addEventListener('input', () => {
@@ -737,13 +757,14 @@ ${clientFieldsHtml('advanced')}
     });
 
     const SCAN_WARN_SECONDS = 4.75;
+    const FM_POINT_MS = ${deviceConfig === 'si47xx' ? 9.5 : 6.2};
 
     // Calibrated against measured scans, biased to over-estimate so a borderline range reads as slow rather than safe
     function estimateScanSeconds(lowMHz, highMHz, stepKHz) {
         const spanKHz = (highMHz - lowMHz) * 1000;
         if (!(spanKHz > 0) || !(stepKHz > 0)) return null;
         const points = Math.floor(spanKHz / stepKHz) + 1;
-        const ms = lowMHz >= 64 ? 300 + points * 6.2 : 250 + points * 9.8;
+        const ms = lowMHz >= 64 ? 300 + points * FM_POINT_MS : 250 + points * 9.8;
         return Math.ceil(ms / 100) / 10;
     }
 
@@ -850,6 +871,8 @@ ${clientFieldsHtml('advanced')}
         ranges = parseRangesString(DEFAULTS.customRanges);
         renderRanges();
         document.getElementById('disableHfSpanLimit').checked = DEFAULTS.disableHfSpanLimit;
+        document.getElementById('disableHfScanning').checked = DEFAULTS.disableHfScanning;
+        document.getElementById('sendBothBandwidthCommands').checked = DEFAULTS.sendBothBandwidthCommands;
         document.getElementById('clearGraphOnScan').checked   = DEFAULTS.clearGraphOnScan;
         document.getElementById('warnIncompleteData').checked = DEFAULTS.warnIncompleteData;
         document.getElementById('logLocalCommands').checked   = DEFAULTS.logLocalCommands;
@@ -877,6 +900,8 @@ ${clientFieldsHtml('advanced')}
             fmLowerLimit:       Number(document.getElementById('fmLowerLimit').value),
             customRanges:       document.getElementById('customRanges').value,
             disableHfSpanLimit: document.getElementById('disableHfSpanLimit').checked,
+            disableHfScanning:  document.getElementById('disableHfScanning').checked,
+            sendBothBandwidthCommands: document.getElementById('sendBothBandwidthCommands').checked,
             warnIncompleteData: document.getElementById('warnIncompleteData').checked,
             logLocalCommands:   document.getElementById('logLocalCommands').checked,
             clearGraphOnScan:   document.getElementById('clearGraphOnScan').checked,
@@ -949,6 +974,8 @@ let tuningBandwidth = 56; // kHz
 let fmLowerLimit = 86; // Match dummyFreqStart value (default: 86)
 let customRanges = ""; // Custom ranges
 let disableHfSpanLimit = false; // Allow custom HF ranges wider than 3 MHz
+let disableHfScanning = false; // Block scans below 30 MHz
+let sendBothBandwidthCommands = false; // Send Sf and Sw during a scan, as XDR-GTK does
 let warnIncompleteData = false; // Warn about incomplete data
 let logLocalCommands = true; // Log locally sent commands
 let clearGraphOnScan = true; // Clear graph data when a new scan begins
@@ -1043,6 +1070,8 @@ const defaultConfig = {
     fmLowerLimit: 86,
     customRanges: "",
     disableHfSpanLimit: false,
+    disableHfScanning: false,
+    sendBothBandwidthCommands: false,
     warnIncompleteData: false,
     logLocalCommands: true,
     clearGraphOnScan: true,
@@ -1055,7 +1084,7 @@ const defaultConfig = {
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'disableHfSpanLimit', 'warnIncompleteData', 'logLocalCommands', 'clearGraphOnScan', 'progressiveScanEnabled', 'progressiveScanSweepLine', 'progressiveScanBatchMs', 'progressiveScanReferenceClients', ...CLIENT_SETTINGS.map(s => s.key), 'definedBands'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'fmLowerLimit', 'customRanges', 'disableHfSpanLimit', 'disableHfScanning', 'sendBothBandwidthCommands', 'warnIncompleteData', 'logLocalCommands', 'clearGraphOnScan', 'progressiveScanEnabled', 'progressiveScanSweepLine', 'progressiveScanBatchMs', 'progressiveScanReferenceClients', ...CLIENT_SETTINGS.map(s => s.key), 'definedBands'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -1100,6 +1129,8 @@ function loadConfigFile(isReloaded) {
             fmLowerLimit = !isNaN(Number(config.fmLowerLimit)) ? Number(config.fmLowerLimit) : defaultConfig.fmLowerLimit;
             customRanges = typeof config.customRanges === 'string' ? config.customRanges : '';
             disableHfSpanLimit = typeof config.disableHfSpanLimit === 'boolean' ? config.disableHfSpanLimit : defaultConfig.disableHfSpanLimit;
+            disableHfScanning = typeof config.disableHfScanning === 'boolean' ? config.disableHfScanning : defaultConfig.disableHfScanning;
+            sendBothBandwidthCommands = typeof config.sendBothBandwidthCommands === 'boolean' ? config.sendBothBandwidthCommands : defaultConfig.sendBothBandwidthCommands;
             warnIncompleteData = typeof config.warnIncompleteData === 'boolean' ? config.warnIncompleteData : defaultConfig.warnIncompleteData;
             logLocalCommands = typeof config.logLocalCommands === 'boolean' ? config.logLocalCommands : defaultConfig.logLocalCommands;
             clearGraphOnScan = typeof config.clearGraphOnScan === 'boolean' ? config.clearGraphOnScan : defaultConfig.clearGraphOnScan;
@@ -1641,12 +1672,15 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
             // Remove trailing comma and space in TEF668X radio firmware
             if (interceptedUData && interceptedUData.endsWith(', ')) {
                 interceptedUData = interceptedUData.slice(0, -2);
-                isModule = false; // Firmware now detected as TEF668X radio
-                firmwareType = "TEF668X radio";
-            } else {
+                if (deviceConfig !== 'xdr') {
+                    isModule = false; // Firmware now detected as TEF668X radio
+                    firmwareType = "TEF668X radio";
+                }
+            } else if (deviceConfig !== 'xdr') {
                 isModule = true;
-                firmwareType = "TEF668X module";
+                firmwareType = deviceConfig === 'si47xx' ? deviceName : "TEF668X module"; // Si47XX firmware replies in the module format
             }
+            isFirmwareDetected = true;
 
             interceptedUData = interceptedUData.replaceAll(" ", ""); // Remove any spaces regardless of firmware
 
@@ -1903,7 +1937,9 @@ function startPluginStartup() {
     isFirstRun = true;
     updateSpectrumData({ isFirstRun });
     isFirstFirmwareNotice = false;
-    isModule = true;
+    isModule = deviceConfig !== 'xdr';
+    isFirmwareDetected = false;
+    firmwareType = deviceConfig === 'xdr' ? 'XDR' : 'unknown';
 
     // If default frequency is enabled in config
     if (config.enableDefaultFreq) {
@@ -2044,7 +2080,8 @@ function startPluginStartup() {
         // First run complete
         if (isFirstRun && !isFirstFirmwareNotice) {
             isFirstFirmwareNotice = true;
-            logInfo(`[${pluginName}] Firmware detected as ${firmwareType}.`);
+            // Only XDR skips the module/radio test entirely, so it is declared rather than detected
+            logInfo(`[${pluginName}] Firmware ${deviceConfig === 'xdr' ? 'operational' : 'detected'} as ${deviceConfig === 'tef' || deviceConfig === 'si47xx' ? firmwareType : deviceName}.`);
         }
 
         isFirstRun = false;
@@ -2069,35 +2106,94 @@ async function sendCommandToClient(command) {
     }
 }
 
+// kHz to 'Sf' filter index. TEF values match the TEF668X firmware, XDR values match XDR-GTK's filters_legacy table.
+const FILTER_INDEX_TEF = { 56: 0, 64: 26, 72: 1, 84: 28, 97: 29, 114: 3, 133: 4, 151: 5, 168: 7, 184: 8, 200: 9, 217: 10, 236: 11, 254: 12, 287: 13, 311: 15 };
+const FILTER_INDEX_XDR = { 9: 31, 15: 16, 17: 17, 20: 18, 24: 19, 27: 20, 32: 21, 36: 22, 42: 23, 48: 24, 55: 0, 63: 26, 73: 1, 83: 28, 90: 2, 95: 29, 108: 3, 125: 4, 142: 5, 159: 6, 177: 7, 194: 8, 211: 9, 229: 10, 246: 11, 263: 12, 281: 13, 298: 14, 309: 15 };
+
+const XDR_WIDTH_BY_INDEX = Object.fromEntries(Object.entries(FILTER_INDEX_XDR).map(([kHz, index]) => [index, Number(kHz)]));
+const TEF_WIDTH_BY_INDEX = Object.fromEntries(Object.entries(FILTER_INDEX_TEF).map(([kHz, index]) => [index, Number(kHz)]));
+
+function widthForIndex(index) {
+    return (deviceConfig === 'xdr' ? XDR_WIDTH_BY_INDEX : TEF_WIDTH_BY_INDEX)[index];
+}
+
+function filterIndexFor(bandwidth) {
+    if (deviceConfig === 'xdr' && bandwidth in FILTER_INDEX_XDR) return FILTER_INDEX_XDR[bandwidth];
+    return bandwidth in FILTER_INDEX_TEF ? FILTER_INDEX_TEF[bandwidth] : null;
+}
+
+// Module firmware snaps 'Sw' to its nearest filter, matching Bandwidth::lookup() over LITHIO_BANDWIDTH_FM
+const TEF_WIDTHS = Object.keys(FILTER_INDEX_TEF).map(Number);
+
+function nearestTefWidth(bandwidth) {
+    return TEF_WIDTHS.reduce((best, w) => Math.abs(bandwidth - w) < Math.abs(bandwidth - best) ? w : best, TEF_WIDTHS[0]);
+}
+
+// Si47XX firmware rounds 'Sw' down to the chip's fixed FM filters
+const SI47XX_WIDTHS = [40, 60, 84, 110];
+
+// AM widths for the Band Definitions list. XDR keeps the TEF set, as its own AM widths are unverified
+const TEF_AM_WIDTHS = [3, 4, 6, 8];
+const SI47XX_AM_WIDTHS = [1, 1.8, 2, 2.5, 3, 4, 6];
+
+function si47xxWidth(bandwidth) {
+    return bandwidth >= 100 ? 110 : bandwidth >= 80 ? 84 : bandwidth >= 60 ? 60 : 40;
+}
+
+// The width the tuner will actually use, or null while the firmware is still unknown
+function effectiveBandwidth(bandwidth) {
+    if (deviceConfig === 'si47xx') return si47xxWidth(bandwidth); // Only Si47XX firmware drives this chip, and it always applies 'Sw'
+    if (deviceConfig !== 'xdr' && !isFirmwareDetected) return null; // A declared XDR never relies on detection
+    if (isModule) return nearestTefWidth(bandwidth);
+    // Radio and XDR take the index, and an unlisted width falls back to filter 0
+    const index = filterIndexFor(bandwidth);
+    return widthForIndex(index === null ? 0 : index);
+}
+
+function isHfScanCommand(command) {
+    if (command === 'scan-1' || command === 'scan-2') {
+        const range = formattedCustomRanges[command === 'scan-1' ? 0 : 1];
+        return !!range && range.low < 30;
+    }
+    return command === 'scan' && currentFrequency < 30;
+}
+
+function warnUnsupportedStep(lowerScaled, step) {
+    if (deviceConfig === 'si47xx' && lowerScaled >= 64000 && step % 10 !== 0) {
+        logWarn(`${pluginName}: ${step} kHz is not a supported ${deviceName} FM step, frequencies are rounded down to 10 kHz.`);
+    }
+}
+
 // Module firmware takes the bandwidth in Hz, radio firmware takes an index. Returns the index, or null on module firmware
-function sendBandwidthCommand(bandwidth) {
-    if (isModule) {
+function sendBandwidthCommand(bandwidth, isAm) {
+    if (hasFilterTable && !isAm && bandwidth !== 0) {
+        // Reported on every scan, as a bandwidth the tuner cannot use stays wrong until the config is corrected
+        const actual = effectiveBandwidth(bandwidth);
+        if (actual === null ? filterIndexFor(bandwidth) === null : actual !== bandwidth) {
+            logWarn(`${pluginName}: ${bandwidth} kHz is not a supported ${deviceName} filter width${actual === null ? '' : `, using ${actual} kHz`}.`);
+        }
+    }
+
+    if (isModule && isFirmwareDetected && !sendBothBandwidthCommands) {
         sendCommandToClient(`Sw${bandwidth === 3 ? 3000 : bandwidth * 1000}`);
+        scanSequence = 'Sw';
         return null;
     }
 
-    let BWradio = 0;
-    if (bandwidth !== 3) {
-        switch (bandwidth) {
-            case 56: BWradio = 0; break;
-            case 64: BWradio = 26; break;
-            case 72: BWradio = 1; break;
-            case 84: BWradio = 28; break;
-            case 97: BWradio = 29; break;
-            case 114: BWradio = 3; break;
-            case 133: BWradio = 4; break;
-            case 151: BWradio = 5; break;
-            case 168: BWradio = 7; break;
-            case 184: BWradio = 8; break;
-            case 200: BWradio = 9; break;
-            case 217: BWradio = 10; break;
-            case 236: BWradio = 11; break;
-            case 254: BWradio = 12; break;
-            case 287: BWradio = 13; break;
-            case 311: BWradio = 15; break;
-        }
+    // XDR-GTK sends the index first then the Hz form, so a tuner that understands either lands on the right bandwidth
+    const sendHzForm = sendBothBandwidthCommands || (deviceConfig === 'xdr' ? XDR_SENDS_HZ_FORM : !isFirmwareDetected);
+
+    let BWradio = bandwidth === 0 ? -1 : 0; // -1 is the protocol's adaptive filter, as XDR-GTK sends for Auto
+    if (bandwidth !== 3 && bandwidth !== 0) {
+        const index = filterIndexFor(bandwidth);
+        if (index !== null) BWradio = index;
     }
     sendCommandToClient(`Sf${BWradio}`);
+    scanSequence = 'Sf';
+    if (sendHzForm) {
+        sendCommandToClient(`Sw${bandwidth === 3 ? 3000 : bandwidth * 1000}`);
+        scanSequence += `${scanSequence ? ', ' : ''}Sw`;
+    }
     return BWradio;
 }
 
@@ -2140,6 +2236,12 @@ async function startScan(command) {
 
     if (isNaN(currentFrequency) || currentFrequency === 0.0) {
         currentFrequency = tuningLowerLimit;
+    }
+
+    // Checked before the graph is cleared, so a blocked scan leaves the last one on screen
+    if (disableHfScanning && isHfScanCommand(command)) {
+        logWarn(`${pluginName}: HF scanning is disabled.`);
+        return;
     }
 
     // Scan started
@@ -2236,11 +2338,12 @@ async function startScan(command) {
             logWarn(`${pluginName}: Scanning below ${fmLowerLimit} MHz is disabled.`);
             return;
         } else {
+            warnUnsupportedStep(tuningLowerLimitScan, activeStepSize);
             sendCommandToClient(`Sa${tuningLowerLimitScan}`);
             sendCommandToClient(`Sb${tuningUpperLimitScan}`);
             sendCommandToClient(`Sc${activeStepSize}`);
             
-            const BWradio = sendBandwidthCommand(activeBandwidth);
+            const BWradio = sendBandwidthCommand(activeBandwidth, tuningLowerLimitScan < 30000);
             sendCommandToClient('S');
 
             structureCustomRanges();
@@ -2249,7 +2352,8 @@ async function startScan(command) {
                 console.log(`Sa${tuningLowerLimitScan}`);
                 console.log(`Sb${tuningUpperLimitScan}`);
                 console.log(`Sc${activeStepSize}`);
-                console.log(isModule ? `Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}` : `Sf${BWradio}`);
+                console.log(isModule && isFirmwareDetected && !sendBothBandwidthCommands ? `Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}` : `Sf${BWradio}`);
+                if (sendBothBandwidthCommands || (deviceConfig === 'xdr' ? XDR_SENDS_HZ_FORM : !isFirmwareDetected)) console.log(`Sw${activeBandwidth === 3 ? 3000 : activeBandwidth * 1000}`);
                 console.log('S');
             }
         }
@@ -2286,7 +2390,7 @@ async function startScan(command) {
             if (rangeLowerScaled < 64000) rangeLowerScaled = 64000;
             if (rangeUpperScaled > 108000) rangeUpperScaled = 108000;
             activeStepSize = range.step ?? (rangeUpperScaled <= fmLowerLimitScaled ? 30 : tuningStepSize);
-            activeBandwidth = rangeUpperScaled <= fmLowerLimitScaled ? 56 : tuningBandwidth;
+            activeBandwidth = rangeUpperScaled <= fmLowerLimitScaled ? (deviceConfig === 'si47xx' ? 40 : deviceConfig === 'xdr' ? 55 : 56) : tuningBandwidth;
         }
 
         if (rangeUpperScaled <= rangeLowerScaled) {
@@ -2299,11 +2403,12 @@ async function startScan(command) {
         tuningLowerLimitScan = rangeLowerScaled;
         tuningUpperLimitScan = rangeUpperScaled;
 
+        warnUnsupportedStep(rangeLowerScaled, activeStepSize);
         sendCommandToClient(`Sa${rangeLowerScaled}`);
         sendCommandToClient(`Sb${rangeUpperScaled}`);
         sendCommandToClient(`Sc${activeStepSize}`);
         
-        sendBandwidthCommand(activeBandwidth);
+        sendBandwidthCommand(activeBandwidth, rangeLowerScaled < 30000);
 
         sendCommandToClient('S');
 
@@ -2337,7 +2442,7 @@ async function startScan(command) {
         (!logLocalCommands && ipAddress !== '127.0.0.1' && !ipAddress.includes('ws://')) || 
         isFirstRun
     ) {
-        logInfo(`[${pluginName}] Spectral commands sent (${ipAddress})`);
+        logInfo(`[${pluginName}] Spectral commands sent${scanSequence ? ` including ${scanSequence}` : ''}${firmwareType !== 'unknown' ? ` to ${firmwareType}` : ''} (${ipAddress})`);
     }
 
     // Reset data before receiving new data
