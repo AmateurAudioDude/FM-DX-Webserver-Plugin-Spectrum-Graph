@@ -796,6 +796,15 @@ function getOldScanTail(afterFreq) {
     });
 }
 
+// An empty frame of the scan in progress, so a graph with nothing to draw isn't left blank
+function useEmptyScanFrame() {
+    if ((sigArray && sigArray.length > 0) || !progressiveScanBounds) return;
+    const { lower, upper } = progressiveScanBounds;
+    sigArray = [lower, (lower + upper) / 2, upper].map(f => ({ freq: f.toFixed(3), sig: '0.00' }));
+    hasCompletedScanData = false; // A scan that fails must not pass these zeros on as old data
+    dataError = false;
+}
+
 function calibratedSig(freqMHz, sig) {
     const _f = parseFloat(freqMHz);
     const adjustment = (_f >= 87 && _f < 93) ? CAL90000 : (_f >= 93 && _f < 98) ? CAL95500 : (_f >= 98 && _f < 103) ? CAL100500 : (_f >= 103 && _f <= 108) ? CAL105500 : 0;
@@ -2026,6 +2035,9 @@ async function setupSendSocket() {
                             : null;
 
                         sigArray = getOldScanTail(progressiveScanLatestFreq);
+
+                        // With no scan data at all, an empty frame of this range keeps a graph opened mid-scan from staying blank
+                        if (!hasCompletedScanData) useEmptyScanFrame();
 
                         // Only show hover using old data confirmed to be from this same range, not a leftover different band
                         progressiveScanIsSameRange = !!(lastCompletedScanBounds && progressiveScanBounds &&
@@ -3889,6 +3901,9 @@ function toggleSpectrum() {
         // Update button appearance
         SpectrumButton.classList.remove('bg-color-2');
         SpectrumButton.classList.add('bg-color-4');
+
+        // Opening clears the canvas, so a scan's empty old data would leave it blank
+        useEmptyScanFrame();
 
         // Perform when spectrum is on
         displaySdrGraph();

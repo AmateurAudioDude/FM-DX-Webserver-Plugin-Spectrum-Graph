@@ -758,13 +758,14 @@ ${clientFieldsHtml('advanced')}
 
     const SCAN_WARN_SECONDS = 4.75;
     const FM_POINT_MS = ${deviceConfig === 'si47xx' ? 9.5 : 6.2};
+    const HF_POINT_MS = ${deviceConfig === 'si47xx' ? 16.5 : 9.8};
 
     // Calibrated against measured scans, biased to over-estimate so a borderline range reads as slow rather than safe
     function estimateScanSeconds(lowMHz, highMHz, stepKHz) {
         const spanKHz = (highMHz - lowMHz) * 1000;
         if (!(spanKHz > 0) || !(stepKHz > 0)) return null;
         const points = Math.floor(spanKHz / stepKHz) + 1;
-        const ms = lowMHz >= 64 ? 300 + points * FM_POINT_MS : 250 + points * 9.8;
+        const ms = lowMHz >= 64 ? 300 + points * FM_POINT_MS : 250 + points * HF_POINT_MS;
         return Math.ceil(ms / 100) / 10;
     }
 
@@ -924,6 +925,26 @@ ${clientFieldsHtml('advanced')}
 
     renderBands();
     renderRanges();
+
+    // Checked once on page load
+    (function showSlowScanBanner() {
+        const slow = [];
+        document.querySelectorAll('#mainScanEst .est-slow').forEach(el => {
+            const parts = el.textContent.split(': ');
+            slow.push('Main scan ' + escHtml(parts[0]) + ' (' + escHtml(parts[1]) + ')');
+        });
+        [['range', ranges], ['band', bands]].forEach(([kind, list]) => {
+            document.querySelectorAll('[data-est="' + kind + '"].est-slow').forEach(cell => {
+                const item = list[+cell.dataset.i];
+                if (item) slow.push(escHtml(item.name) + ' (' + escHtml(cell.textContent) + ')');
+            });
+        });
+        if (slow.length === 0) return;
+        document.querySelector('main').insertAdjacentHTML('beforebegin',
+            '<div class="banner banner-warn"><span class="banner-icon">&#9888;</span><div><b>Scan Time</b><br>' +
+            'Estimated to take longer than the 5 seconds before clients drop the connection: ' + slow.join(', ') +
+            '. Use a coarser step or a narrower range.</div></div>');
+    })();
 </script>
 </body>
 </html>`;
@@ -2160,7 +2181,7 @@ function isHfScanCommand(command) {
 
 function warnUnsupportedStep(lowerScaled, step) {
     if (deviceConfig === 'si47xx' && lowerScaled >= 64000 && step % 10 !== 0) {
-        logWarn(`${pluginName}: ${step} kHz is not a supported ${deviceName} FM step, frequencies are rounded down to 10 kHz.`);
+        logWarn(`[${pluginName}] ${step} kHz is not a supported ${deviceName} FM step, frequencies are rounded down to 10 kHz.`);
     }
 }
 
@@ -2170,7 +2191,7 @@ function sendBandwidthCommand(bandwidth, isAm) {
         // Reported on every scan, as a bandwidth the tuner cannot use stays wrong until the config is corrected
         const actual = effectiveBandwidth(bandwidth);
         if (actual === null ? filterIndexFor(bandwidth) === null : actual !== bandwidth) {
-            logWarn(`${pluginName}: ${bandwidth} kHz is not a supported ${deviceName} filter width${actual === null ? '' : `, using ${actual} kHz`}.`);
+            logWarn(`[${pluginName}] ${bandwidth} kHz is not a supported ${deviceName} filter width${actual === null ? '' : `, using ${actual} kHz`}.`);
         }
     }
 
