@@ -184,6 +184,8 @@ if (deviceConfig === 'tef') {
 // Si47XX keeps the limited compatibility notice but has a known filter table
 const hasFilterTable = isDeviceCompatible || deviceConfig === 'si47xx';
 
+const hfUpperLimit = deviceConfig === 'si47xx' ? 30 : 27; // MHz
+
 // Normalise IP address
 function normalizeIp(ip) {
     return ip
@@ -774,7 +776,7 @@ ${clientFieldsHtml('advanced')}
         let low = Number(r.low), high = Number(r.high);
         if (low < 30) {
             if (low < 0.144) low = 0.144;
-            if (high > 27) high = 27;
+            if (high > ${hfUpperLimit}) high = ${hfUpperLimit};
             if (!document.getElementById('disableHfSpanLimit').checked && high - low > 3) high = low + 3;
         } else {
             if (low < 64) low = 64;
@@ -2299,7 +2301,7 @@ async function startScan(command) {
         activeBandwidth = foundBand.bw;
     } else if (currentFrequencyScaled < 64000) {
         tuningLowerLimitScan = Math.max(144, currentFrequencyScaled - 500);
-        tuningUpperLimitScan = Math.min(27000, currentFrequencyScaled + 500);
+        tuningUpperLimitScan = Math.min(hfUpperLimit * SCALE, currentFrequencyScaled + 500);
         activeStepSize = 3;
         activeBandwidth = 3;
     } else {
@@ -2400,7 +2402,7 @@ async function startScan(command) {
 
         if (rangeLowerScaled < 30000) {
             if (rangeLowerScaled < 144) rangeLowerScaled = 144;
-            if (rangeUpperScaled > 27000) rangeUpperScaled = 27000;
+            if (rangeUpperScaled > hfUpperLimit * SCALE) rangeUpperScaled = hfUpperLimit * SCALE;
             if (!disableHfSpanLimit && rangeUpperScaled - rangeLowerScaled > 3000) {
                 rangeUpperScaled = rangeLowerScaled + 3000;
                 logWarn(`${pluginName}: Custom AM range too large. Clamped to 3 MHz span.`);
@@ -2416,7 +2418,7 @@ async function startScan(command) {
 
         if (rangeUpperScaled <= rangeLowerScaled) {
             isScanHalted(true);
-            logWarn(`${pluginName}: Custom range ${range.low}-${range.high} MHz falls outside the tuner's 0.144-27 and 64-108 MHz coverage.`);
+            logWarn(`${pluginName}: Custom range ${range.low}-${range.high} MHz falls outside the tuner's 0.144-${hfUpperLimit} and 64-108 MHz coverage.`);
             return;
         }
 
