@@ -14,32 +14,15 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 * Configuration options accessed via admin Settings button
 
 > [!IMPORTANT]
-> 
-> ## Progressive Scan
->
-> Spectrum Graph v1.5.0 introduces progressive scanning, where the graph fills in live as the scan sweeps across the band.
->
-> If your tuner connects to FM-DX Webserver through xdrd, progressive scanning needs a modified version of xdrd. The standard xdrd sends scan data in one burst, so the graph still appears all at once at the end.
->
-> To use progressive scanning with xdrd:
->
-> ### 🪟 Windows
-> 
-> * Download the modified xdrd [here](https://github.com/AmateurAudioDude/xdrd/releases)
-> 
-> ### 🐧 Linux
-> 
-> * Follow the guide [here](https://github.com/NoobishSVK/fm-dx-webserver/wiki/Linux-Installation#installation-of-xdrd), replacing the URL with ```https://github.com/AmateurAudioDude/xdrd.git```
->
-> ### Rest of guide
-> 
-> * Start xdrd with your usual parameters, including the `-S` flag at the beginning. This makes it send scan data as each point is measured, just like a direct serial connection.  
-> * Enable `Progressive Scan` in the Spectrum Graph admin settings.
->
-> Without the modified xdrd, scanning works exactly as before, and the server log shows "Scan data arrived as single burst" when Progressive Scan is enabled. Direct (serial) connections need no changes.
-
-> [!IMPORTANT]
 > For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20.9** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32/releases). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
+
+> [!NOTE]
+> 
+> To configure **Progressive Scan**, see the [**Progressive Scan wiki**](https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/wiki/Progressive-Scan)
+
+> [!TIP]
+>
+> Wanting to set up a **Si4732 ATS Mini Pocket Receiver**? See the [**Si4732 ATS Mini Radio Receiver wiki**](https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph/wiki/Si4732-ATS-Mini-Radio-Receiver)
 
 v1.5.1
 ------
