@@ -1,6 +1,7 @@
 # Spectrum Graph plugin for FM-DX Webserver
 
-This plugin scans the FM radio band in under 1.5 seconds, then displayed in a spectrum window.
+This plugin scans the FM radio band in under 1.5 seconds, then displayed in a spectrum window.  
+Installed on hundreds of FM-DX Webservers worldwide.
 
 ![spectrum_graph](https://github.com/user-attachments/assets/1dc91573-ffb1-414e-a3de-cd204422a40c)
 
@@ -14,7 +15,7 @@ This plugin scans the FM radio band in under 1.5 seconds, then displayed in a sp
 * Configuration options accessed via admin Settings button
 
 > [!IMPORTANT]
-> For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20.9** or newer firmware, available from the FMDX.org Discord server, [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32/releases). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
+> For full compatibility, **TEF668X radio** requires **TEF6686_ESP32 v2.20.9** or newer firmware, available from the [FMDX.org Discord server](https://discord.gg/ZAVNdS74mC), [PE5PVB's GitHub](https://github.com/PE5PVB/TEF6686_ESP32), or alternatively, download my latest personal fork [here](https://github.com/AmateurAudioDude/TEF6686_ESP32/releases). It is strongly recommended that TEF radios with older firmware be updated for optimal performance.
 
 > [!NOTE]
 > 
