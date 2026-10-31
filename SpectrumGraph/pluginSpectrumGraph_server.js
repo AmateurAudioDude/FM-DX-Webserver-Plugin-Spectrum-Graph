@@ -997,7 +997,7 @@ let tuningBandwidth = 56; // kHz
 let fmLowerLimit = 86; // Match dummyFreqStart value (default: 86)
 let customRanges = ""; // Custom ranges
 let disableHfSpanLimit = false; // Allow custom HF ranges wider than 3 MHz
-let disableHfScanning = false; // Block scans below 30 MHz
+let disableHfScanning = true; // Block scans below 30 MHz
 let sendBothBandwidthCommands = false; // Send Sf and Sw during a scan, as XDR-GTK does
 let warnIncompleteData = false; // Warn about incomplete data
 let logLocalCommands = true; // Log locally sent commands
@@ -1093,7 +1093,7 @@ const defaultConfig = {
     fmLowerLimit: 86,
     customRanges: "",
     disableHfSpanLimit: false,
-    disableHfScanning: false,
+    disableHfScanning: true,
     sendBothBandwidthCommands: false,
     warnIncompleteData: false,
     logLocalCommands: true,
