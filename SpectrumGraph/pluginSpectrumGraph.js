@@ -601,6 +601,37 @@ let currentLanguage = DEFAULT_LANGUAGE || 'en';
 let tuningEnabled = true;           // Affects all clients
 let tuningEnabledLocally = true;    // Affects local client
 let fmLowerLimitClient = 86; // Updated by data.fmLowerLimit
+
+// Spectrum Graph options set in the 'Enhanced Tuning' admin panel (all off without it)
+function getEnhancedTuningOptions() {
+    const enhancedTuning = window.EnhancedTuning;
+    const options = enhancedTuning && typeof enhancedTuning.getSpectrumGraphOptions === 'function'
+        ? enhancedTuning.getSpectrumGraphOptions() : null;
+    return options || { bandwidthHighlight: false, followBand: 'off' };
+}
+
+// Half the selected bandwidth in MHz for the current frequency highlight.
+// Reads the bandwidth dropdown ('3 kHz', '56 kHz', ...); 'Auto' or a value that
+// doesn't fit the band falls back to the previous fixed widths (±3 kHz AM, ±100 kHz FM).
+function getHighlightHalfWidthMHz(freq) {
+    const isAm = freq < 30.0;
+    if (!getEnhancedTuningOptions().bandwidthHighlight) return isAm ? 0.003 : 0.1;
+    const bwInput = document.querySelector('#data-bw input') || document.querySelector('.data-bw input');
+    const bwText = (bwInput && bwInput.value) || (document.querySelector('#data-bw .selected') || {}).textContent || '';
+    const match = bwText.match(/([\d.]+)\s*kHz/i);
+    const bwKHz = match ? parseFloat(match[1]) : NaN;
+
+    if (isAm) return (bwKHz > 0 && bwKHz <= 12) ? bwKHz / 2000 : 0.003;
+    return (bwKHz >= 20 && bwKHz <= 400) ? bwKHz / 2000 : 0.1;
+}
+
+// MW step in kHz: MW_TUNING_STEP if set, else 'Enhanced Tuning' plugin (its API, then its saved preference), else 9
+function getMwStepKHz() {
+    if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP;
+    const enhancedTuning = window.EnhancedTuning;
+    if (enhancedTuning && typeof enhancedTuning.getMwStepKHz === 'function') return enhancedTuning.getMwStepKHz();
+    return localStorage.getItem('mwStepPreference') === 'true' ? 10 : 9; // Set by Enhanced_Tuning_Main.js
+}
 let tuningStepSizeClient = 50; // kHz, updated by data.tuningStepSize
 let tuningBandwidthClient = 56; // kHz, updated by data.tuningBandwidth
 
@@ -2087,6 +2118,7 @@ async function setupSendSocket() {
                         } else {
                             applyFinalSigArray(data.value);
                         }
+                        rememberBandScan(data.value);
                     }
 
                     if (data.type === 'sigArrayPoints' && Array.isArray(data.value) && progressiveScanEnabledClient && !progressiveScanMissedStart && !localStorageItem.progressiveScanDisabled) {
@@ -3964,6 +3996,101 @@ function observeFrequency() {
 
 observeFrequency();
 
+// Redraw when the bandwidth changes, since the highlight width follows it.
+// The dropdown is set with jQuery .val(), which a MutationObserver can't see,
+// so this listens for 'bw' in the webserver's own data instead. The socket is
+// replaced on reconnect, so the listener is re-attached when that happens.
+function observeBandwidth() {
+    let attachedSocket = null;
+    let lastBw = null;
+
+    const onMessage = (event) => {
+        if (typeof event.data !== 'string' || event.data.indexOf('"bw"') === -1) return;
+        let bw;
+        try { bw = JSON.parse(event.data).bw; } catch (e) { return; }
+        if (bw === undefined || bw === lastBw) return;
+        const isFirst = lastBw === null;
+        lastBw = bw;
+        // The webserver throttles its panel updates (75 ms), so redraw once the dropdown has changed
+        if (!isFirst && isGraphOpen && getEnhancedTuningOptions().bandwidthHighlight) setTimeout(drawGraph, 150);
+    };
+
+    const attach = () => {
+        const current = window.socket;
+        if (!current || current === attachedSocket || typeof current.addEventListener !== 'function') return;
+        if (attachedSocket) attachedSocket.removeEventListener('message', onMessage);
+        current.addEventListener('message', onMessage);
+        attachedSocket = current;
+    };
+
+    attach();
+    setInterval(attach, 2000);
+}
+
+observeBandwidth();
+
+/* ==================================================
+          FOLLOW BAND CHANGES ('Enhanced Tuning')
+   ================================================== */
+
+// Enhanced Tuning announces 'enhanced-tuning:band-change' when the tuned frequency moves into
+// another band. Depending on its 'Follow Band Changes' option the graph then shows the last
+// scan of that band (kept per band and antenna in this browser) or scans the band.
+const BAND_SCAN_STORAGE_KEY = 'spectrumGraphBandScans';
+let followBandTimer = null;
+
+// Narrowest Enhanced Tuning band containing the frequency, so 31m wins over SW
+function findEnhancedTuningBand(freqMHz) {
+    const enhancedTuning = window.EnhancedTuning;
+    if (!enhancedTuning || typeof enhancedTuning.getBands !== 'function') return null;
+    return enhancedTuning.getBands()
+        .filter(band => freqMHz >= band.start && freqMHz <= band.end)
+        .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0] || null;
+}
+
+function readBandScans() {
+    try { return JSON.parse(localStorage.getItem(BAND_SCAN_STORAGE_KEY)) || {}; } catch (e) { return {}; }
+}
+
+function rememberBandScan(scan) {
+    if (getEnhancedTuningOptions().followBand !== 'last' || !Array.isArray(scan) || scan.length < 2) return;
+    const midFreq = (Number(scan[0].freq) + Number(scan[scan.length - 1].freq)) / 2;
+    const band = findEnhancedTuningBand(midFreq);
+    if (!band) return;
+    const scans = readBandScans();
+    scans[`${band.key}_${currentAntenna}`] = { time: Date.now(), value: scan };
+    try {
+        localStorage.setItem(BAND_SCAN_STORAGE_KEY, JSON.stringify(scans));
+    } catch (e) {
+        logWarn('Could not store band scan:', e);
+    }
+}
+
+function requestBandScan() {
+    if (!isTuningAllowed || !wsSendSocket || wsSendSocket.readyState !== WebSocket.OPEN) return;
+    initializeGraph();
+    wsSendSocket.send(JSON.stringify({ type: 'spectrum-graph', value: { status: 'scan' } }));
+}
+
+window.addEventListener('enhanced-tuning:band-change', (event) => {
+    const band = event.detail || {};
+    const mode = getEnhancedTuningOptions().followBand;
+    if (band.initial || mode === 'off' || !band.key || !isGraphOpen) return;
+
+    // Quick band clicks only act on the last one; the tuner is already on the new band
+    clearTimeout(followBandTimer);
+    followBandTimer = setTimeout(() => {
+        if (mode === 'last') {
+            const stored = readBandScans()[`${band.key}_${currentAntenna}`];
+            if (stored && Array.isArray(stored.value) && stored.value.length > 1) {
+                applyFinalSigArray(stored.value);
+                return;
+            }
+        }
+        requestBandScan(); // 'scan', or 'last' with nothing stored yet
+    }, 700);
+});
+
 /* ==================================================
                     CANVAS INTERACTIONS
    ================================================== */
@@ -4030,9 +4157,7 @@ function initializeCanvasInteractions() {
         function getTuningStep(f) {
             if (f < 0.351) return 0.009; // LW
             if (f <= 1.710) { // MW
-                if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP / 1000;
-                const mwStepPref = localStorage.getItem('mwStepPreference'); // Set by Enhanced_Tuning_Main.js
-                return (mwStepPref === 'true') ? 0.010 : 0.009;
+                return getMwStepKHz() / 1000;
             }
             if (f < 30.0) return 0.005; // SW
             if (f < 74.0) return 0.030; // OIRT
@@ -4197,9 +4322,7 @@ function initializeCanvasInteractions() {
         function getTuningStep(f) {
             if (f < 0.351) return 0.009; // LW
             if (f <= 1.710) { // MW
-                if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP / 1000;
-                const mwStepPref = localStorage.getItem('mwStepPreference'); // Set by Enhanced_Tuning_Main.js
-                return (mwStepPref === 'true') ? 0.010 : 0.009;
+                return getMwStepKHz() / 1000;
             }
             if (f < 30.0) return 0.005; // SW
             if (f < 74.0) return 0.030; // OIRT
@@ -4242,9 +4365,8 @@ function initializeCanvasInteractions() {
                 const freq = parseFloat(document.querySelector('#data-frequency').textContent);
 
                 if (freq >= 0.50 && freq < 1.71) {
-                    // Use correct step based on mwStepPreference, set by Enhanced Tuning plugin
-                    const mwStep = (MW_TUNING_STEP !== 0) ? MW_TUNING_STEP
-                        : (localStorage.getItem('mwStepPreference') === 'true') ? 10 : 9; // Set by Enhanced_Tuning_Main.js
+                    // Use correct step, following Enhanced Tuning plugin when MW_TUNING_STEP is 0
+                    const mwStep = getMwStepKHz();
                     const freqKhz = Math.round(freq * 1000);
                     const newFreqKhz = direction > 0
                         ? freqKhz + (mwStep - (freqKhz % mwStep))
@@ -4993,6 +5115,11 @@ function drawGraph() {
     if (sdrGraph) sdrGraph.setAttribute('role', 'img');
     if (sdrGraph) sdrGraph.setAttribute('aria-label', `Signal graph showing ${parseInt(ariaLabelStationCount / 3)} possibly detected stations across the frequency spectrum from ${minFreq} to ${maxFreq} MHz`);
 
+    // Lets other plugins (e.g. Enhanced Tuning's analog scale overlay) follow the visible range
+    window.dispatchEvent(new CustomEvent('spectrum-graph:update', {
+        detail: { minFreq: Number(minFreq), maxFreq: Number(maxFreq), isScanning: !isScanComplete }
+    }));
+
     if (localStorageItem.enableSmoothing) {
         ctx.fillStyle = gradient;
         ctx.strokeStyle = gradient;
@@ -5135,20 +5262,14 @@ function drawGraph() {
     const highlightFreq = Number(dataFrequencyValue);
     // Only draw if the frequency is within or near the graph range
     if (highlightFreq >= minFreq - 0.1 && highlightFreq <= maxFreq + 0.1) {
-        // Calculate the x-coordinates for the white vertical line
-        let highlightBandwidthLow = 0.1;
-        let highlightBandwidthHigh = 0.1;
-
-        // AM scan
-        if (highlightFreq < 30.0) {
-            highlightBandwidthLow = 0.003;
-            highlightBandwidthHigh = 0.003;
-        }
+        // Highlight width follows the selected bandwidth, centred on the tuned frequency
+        const halfWidth = getHighlightHalfWidthMHz(highlightFreq);
+        let highlightBandwidthLow = halfWidth;
+        let highlightBandwidthHigh = halfWidth;
 
         // Adjust bandwidth if at the edge
         if (highlightFreq < minFreq) {
             highlightBandwidthLow = 0.0;
-            highlightBandwidthHigh = highlightFreq < 30.0 ? 0.003 : 0.1; // AM scan
         }
 
         // Left and right X calculations for the highlight region
