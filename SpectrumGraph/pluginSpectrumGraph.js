@@ -602,6 +602,20 @@ let tuningEnabled = true;           // Affects all clients
 let tuningEnabledLocally = true;    // Affects local client
 let fmLowerLimitClient = 86; // Updated by data.fmLowerLimit
 
+// Half the selected bandwidth in MHz for the current frequency highlight.
+// Reads the bandwidth dropdown ('3 kHz', '56 kHz', ...); 'Auto' or a value that
+// doesn't fit the band falls back to the previous fixed widths (±3 kHz AM, ±100 kHz FM).
+function getHighlightHalfWidthMHz(freq) {
+    const isAm = freq < 30.0;
+    const bwInput = document.querySelector('#data-bw input') || document.querySelector('.data-bw input');
+    const bwText = (bwInput && bwInput.value) || (document.querySelector('#data-bw .selected') || {}).textContent || '';
+    const match = bwText.match(/([\d.]+)\s*kHz/i);
+    const bwKHz = match ? parseFloat(match[1]) : NaN;
+
+    if (isAm) return (bwKHz > 0 && bwKHz <= 12) ? bwKHz / 2000 : 0.003;
+    return (bwKHz >= 20 && bwKHz <= 400) ? bwKHz / 2000 : 0.1;
+}
+
 // MW step in kHz: MW_TUNING_STEP if set, else 'Enhanced Tuning' plugin (its API, then its saved preference), else 9
 function getMwStepKHz() {
     if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP;
@@ -5143,20 +5157,14 @@ function drawGraph() {
     const highlightFreq = Number(dataFrequencyValue);
     // Only draw if the frequency is within or near the graph range
     if (highlightFreq >= minFreq - 0.1 && highlightFreq <= maxFreq + 0.1) {
-        // Calculate the x-coordinates for the white vertical line
-        let highlightBandwidthLow = 0.1;
-        let highlightBandwidthHigh = 0.1;
-
-        // AM scan
-        if (highlightFreq < 30.0) {
-            highlightBandwidthLow = 0.003;
-            highlightBandwidthHigh = 0.003;
-        }
+        // Highlight width follows the selected bandwidth, centred on the tuned frequency
+        const halfWidth = getHighlightHalfWidthMHz(highlightFreq);
+        let highlightBandwidthLow = halfWidth;
+        let highlightBandwidthHigh = halfWidth;
 
         // Adjust bandwidth if at the edge
         if (highlightFreq < minFreq) {
             highlightBandwidthLow = 0.0;
-            highlightBandwidthHigh = highlightFreq < 30.0 ? 0.003 : 0.1; // AM scan
         }
 
         // Left and right X calculations for the highlight region
