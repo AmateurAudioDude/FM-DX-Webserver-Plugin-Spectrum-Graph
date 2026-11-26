@@ -601,6 +601,14 @@ let currentLanguage = DEFAULT_LANGUAGE || 'en';
 let tuningEnabled = true;           // Affects all clients
 let tuningEnabledLocally = true;    // Affects local client
 let fmLowerLimitClient = 86; // Updated by data.fmLowerLimit
+
+// MW step in kHz: MW_TUNING_STEP if set, else 'Enhanced Tuning' plugin (its API, then its saved preference), else 9
+function getMwStepKHz() {
+    if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP;
+    const enhancedTuning = window.EnhancedTuning;
+    if (enhancedTuning && typeof enhancedTuning.getMwStepKHz === 'function') return enhancedTuning.getMwStepKHz();
+    return localStorage.getItem('mwStepPreference') === 'true' ? 10 : 9; // Set by Enhanced_Tuning_Main.js
+}
 let tuningStepSizeClient = 50; // kHz, updated by data.tuningStepSize
 let tuningBandwidthClient = 56; // kHz, updated by data.tuningBandwidth
 
@@ -4030,9 +4038,7 @@ function initializeCanvasInteractions() {
         function getTuningStep(f) {
             if (f < 0.351) return 0.009; // LW
             if (f <= 1.710) { // MW
-                if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP / 1000;
-                const mwStepPref = localStorage.getItem('mwStepPreference'); // Set by Enhanced_Tuning_Main.js
-                return (mwStepPref === 'true') ? 0.010 : 0.009;
+                return getMwStepKHz() / 1000;
             }
             if (f < 30.0) return 0.005; // SW
             if (f < 74.0) return 0.030; // OIRT
@@ -4197,9 +4203,7 @@ function initializeCanvasInteractions() {
         function getTuningStep(f) {
             if (f < 0.351) return 0.009; // LW
             if (f <= 1.710) { // MW
-                if (MW_TUNING_STEP !== 0) return MW_TUNING_STEP / 1000;
-                const mwStepPref = localStorage.getItem('mwStepPreference'); // Set by Enhanced_Tuning_Main.js
-                return (mwStepPref === 'true') ? 0.010 : 0.009;
+                return getMwStepKHz() / 1000;
             }
             if (f < 30.0) return 0.005; // SW
             if (f < 74.0) return 0.030; // OIRT
@@ -4242,9 +4246,8 @@ function initializeCanvasInteractions() {
                 const freq = parseFloat(document.querySelector('#data-frequency').textContent);
 
                 if (freq >= 0.50 && freq < 1.71) {
-                    // Use correct step based on mwStepPreference, set by Enhanced Tuning plugin
-                    const mwStep = (MW_TUNING_STEP !== 0) ? MW_TUNING_STEP
-                        : (localStorage.getItem('mwStepPreference') === 'true') ? 10 : 9; // Set by Enhanced_Tuning_Main.js
+                    // Use correct step, following Enhanced Tuning plugin when MW_TUNING_STEP is 0
+                    const mwStep = getMwStepKHz();
                     const freqKhz = Math.round(freq * 1000);
                     const newFreqKhz = direction > 0
                         ? freqKhz + (mwStep - (freqKhz % mwStep))
@@ -4992,6 +4995,11 @@ function drawGraph() {
     const sdrGraph = document.querySelector('.canvas-container');
     if (sdrGraph) sdrGraph.setAttribute('role', 'img');
     if (sdrGraph) sdrGraph.setAttribute('aria-label', `Signal graph showing ${parseInt(ariaLabelStationCount / 3)} possibly detected stations across the frequency spectrum from ${minFreq} to ${maxFreq} MHz`);
+
+    // Lets other plugins (e.g. Enhanced Tuning's analog scale overlay) follow the visible range
+    window.dispatchEvent(new CustomEvent('spectrum-graph:update', {
+        detail: { minFreq: Number(minFreq), maxFreq: Number(maxFreq), isScanning: !isScanComplete }
+    }));
 
     if (localStorageItem.enableSmoothing) {
         ctx.fillStyle = gradient;

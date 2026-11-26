@@ -124,6 +124,28 @@ try {
     usePrivileged = false;
 }
 
+// Enhanced Tuning shares its tuning limits over the plugins_api event bus
+let enhancedTuningState = null;
+if (pluginsApi?.onPluginEvent) {
+    pluginsApi.onPluginEvent('enhanced-tuning', (msg) => {
+        if (msg?.type === 'state' && msg.limits) enhancedTuningState = msg;
+    });
+    // Ask for the current state in case Enhanced Tuning loaded first
+    emitPluginEvent('enhanced-tuning', { type: 'request' }, { broadcast: false });
+}
+
+// Tuning limits for scans above 64 MHz: Enhanced Tuning's limits while its
+// 'Override Server Limits' is on, else the live server config, else config.json
+function getScanTuningLimits() {
+    const et = enhancedTuningState?.limits;
+    if (et?.override && Number(et.fmUpper) > Number(et.fmLower)) {
+        return { lower: Number(et.fmLower), upper: Number(et.fmUpper) };
+    }
+    const webserver = serverConfig?.webserver || config.webserver;
+    if (webserver.tuningLimit === false) return { lower: 0, upper: 108 };
+    return { lower: Number(webserver.tuningLowerLimit) || 0, upper: Number(webserver.tuningUpperLimit) || 108 };
+}
+
 // const variables
 const validScans = ['scan', 'scan-0', 'scan-1', 'scan-2'];
 const VALID_SWEEP_LINES = ['none', 'line', 'line-dot', 'dot', 'glow'];
@@ -319,7 +341,7 @@ function customRouter() {
             fmLowerLimit, customRanges, disableHfSpanLimit, disableHfScanning, sendBothBandwidthCommands, warnIncompleteData, logLocalCommands, clearGraphOnScan,
             progressiveScanEnabled, progressiveScanSweepLine, progressiveScanBatchMs, progressiveScanReferenceClients,
             definedBands,
-            tuningUpperLimit: (config?.webserver?.tuningLimit === false ? 108 : Number(config?.webserver?.tuningUpperLimit)) || 108,
+            tuningUpperLimit: getScanTuningLimits().upper,
         };
 
         // Only the device's own widths are listed
@@ -1267,7 +1289,7 @@ function structureCustomRanges() {
 
     // Add FM range
     const fmRangeLowerLimit = Number(fmLowerLimit) || 86;
-    const fmRangeUpperLimit = Number(config?.webserver?.tuningUpperLimit) || 108;
+    const fmRangeUpperLimit = getScanTuningLimits().upper;
     let fmRange = null;
 
     if (!isNaN(fmRangeLowerLimit) && !isNaN(fmRangeUpperLimit)) {
@@ -2252,10 +2274,8 @@ async function startScan(command) {
 
     const SCALE = 1000;
 
-    // Restrict to config tuning limit, else 0-108 MHz
-    let tuningLimit = config.webserver.tuningLimit;
-    let tuningLowerLimit = tuningLimit === false ? 0 : config.webserver.tuningLowerLimit;
-    let tuningUpperLimit = tuningLimit === false ? 108 : config.webserver.tuningUpperLimit;
+    // Restrict to tuning limits (Enhanced Tuning, live server config or config.json), else 0-108 MHz
+    let { lower: tuningLowerLimit, upper: tuningUpperLimit } = getScanTuningLimits();
 
     if (isNaN(currentFrequency) || currentFrequency === 0.0) {
         currentFrequency = tuningLowerLimit;
