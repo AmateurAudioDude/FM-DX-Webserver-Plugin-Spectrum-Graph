@@ -602,11 +602,20 @@ let tuningEnabled = true;           // Affects all clients
 let tuningEnabledLocally = true;    // Affects local client
 let fmLowerLimitClient = 86; // Updated by data.fmLowerLimit
 
+// Spectrum Graph options set in the 'Enhanced Tuning' admin panel (all off without it)
+function getEnhancedTuningOptions() {
+    const enhancedTuning = window.EnhancedTuning;
+    const options = enhancedTuning && typeof enhancedTuning.getSpectrumGraphOptions === 'function'
+        ? enhancedTuning.getSpectrumGraphOptions() : null;
+    return options || { bandwidthHighlight: false, followBand: 'off' };
+}
+
 // Half the selected bandwidth in MHz for the current frequency highlight.
 // Reads the bandwidth dropdown ('3 kHz', '56 kHz', ...); 'Auto' or a value that
 // doesn't fit the band falls back to the previous fixed widths (±3 kHz AM, ±100 kHz FM).
 function getHighlightHalfWidthMHz(freq) {
     const isAm = freq < 30.0;
+    if (!getEnhancedTuningOptions().bandwidthHighlight) return isAm ? 0.003 : 0.1;
     const bwInput = document.querySelector('#data-bw input') || document.querySelector('.data-bw input');
     const bwText = (bwInput && bwInput.value) || (document.querySelector('#data-bw .selected') || {}).textContent || '';
     const match = bwText.match(/([\d.]+)\s*kHz/i);
@@ -2109,6 +2118,7 @@ async function setupSendSocket() {
                         } else {
                             applyFinalSigArray(data.value);
                         }
+                        rememberBandScan(data.value);
                     }
 
                     if (data.type === 'sigArrayPoints' && Array.isArray(data.value) && progressiveScanEnabledClient && !progressiveScanMissedStart && !localStorageItem.progressiveScanDisabled) {
@@ -4002,7 +4012,7 @@ function observeBandwidth() {
         const isFirst = lastBw === null;
         lastBw = bw;
         // The webserver throttles its panel updates (75 ms), so redraw once the dropdown has changed
-        if (!isFirst && isGraphOpen) setTimeout(drawGraph, 150);
+        if (!isFirst && isGraphOpen && getEnhancedTuningOptions().bandwidthHighlight) setTimeout(drawGraph, 150);
     };
 
     const attach = () => {
@@ -4018,6 +4028,68 @@ function observeBandwidth() {
 }
 
 observeBandwidth();
+
+/* ==================================================
+          FOLLOW BAND CHANGES ('Enhanced Tuning')
+   ================================================== */
+
+// Enhanced Tuning announces 'enhanced-tuning:band-change' when the tuned frequency moves into
+// another band. Depending on its 'Follow Band Changes' option the graph then shows the last
+// scan of that band (kept per band and antenna in this browser) or scans the band.
+const BAND_SCAN_STORAGE_KEY = 'spectrumGraphBandScans';
+let followBandTimer = null;
+
+// Narrowest Enhanced Tuning band containing the frequency, so 31m wins over SW
+function findEnhancedTuningBand(freqMHz) {
+    const enhancedTuning = window.EnhancedTuning;
+    if (!enhancedTuning || typeof enhancedTuning.getBands !== 'function') return null;
+    return enhancedTuning.getBands()
+        .filter(band => freqMHz >= band.start && freqMHz <= band.end)
+        .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0] || null;
+}
+
+function readBandScans() {
+    try { return JSON.parse(localStorage.getItem(BAND_SCAN_STORAGE_KEY)) || {}; } catch (e) { return {}; }
+}
+
+function rememberBandScan(scan) {
+    if (getEnhancedTuningOptions().followBand !== 'last' || !Array.isArray(scan) || scan.length < 2) return;
+    const midFreq = (Number(scan[0].freq) + Number(scan[scan.length - 1].freq)) / 2;
+    const band = findEnhancedTuningBand(midFreq);
+    if (!band) return;
+    const scans = readBandScans();
+    scans[`${band.key}_${currentAntenna}`] = { time: Date.now(), value: scan };
+    try {
+        localStorage.setItem(BAND_SCAN_STORAGE_KEY, JSON.stringify(scans));
+    } catch (e) {
+        logWarn('Could not store band scan:', e);
+    }
+}
+
+function requestBandScan() {
+    if (!isTuningAllowed || !wsSendSocket || wsSendSocket.readyState !== WebSocket.OPEN) return;
+    initializeGraph();
+    wsSendSocket.send(JSON.stringify({ type: 'spectrum-graph', value: { status: 'scan' } }));
+}
+
+window.addEventListener('enhanced-tuning:band-change', (event) => {
+    const band = event.detail || {};
+    const mode = getEnhancedTuningOptions().followBand;
+    if (band.initial || mode === 'off' || !band.key || !isGraphOpen) return;
+
+    // Quick band clicks only act on the last one; the tuner is already on the new band
+    clearTimeout(followBandTimer);
+    followBandTimer = setTimeout(() => {
+        if (mode === 'last') {
+            const stored = readBandScans()[`${band.key}_${currentAntenna}`];
+            if (stored && Array.isArray(stored.value) && stored.value.length > 1) {
+                applyFinalSigArray(stored.value);
+                return;
+            }
+        }
+        requestBandScan(); // 'scan', or 'last' with nothing stored yet
+    }, 700);
+});
 
 /* ==================================================
                     CANVAS INTERACTIONS
