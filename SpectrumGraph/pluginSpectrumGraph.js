@@ -3986,6 +3986,39 @@ function observeFrequency() {
 
 observeFrequency();
 
+// Redraw when the bandwidth changes, since the highlight width follows it.
+// The dropdown is set with jQuery .val(), which a MutationObserver can't see,
+// so this listens for 'bw' in the webserver's own data instead. The socket is
+// replaced on reconnect, so the listener is re-attached when that happens.
+function observeBandwidth() {
+    let attachedSocket = null;
+    let lastBw = null;
+
+    const onMessage = (event) => {
+        if (typeof event.data !== 'string' || event.data.indexOf('"bw"') === -1) return;
+        let bw;
+        try { bw = JSON.parse(event.data).bw; } catch (e) { return; }
+        if (bw === undefined || bw === lastBw) return;
+        const isFirst = lastBw === null;
+        lastBw = bw;
+        // The webserver throttles its panel updates (75 ms), so redraw once the dropdown has changed
+        if (!isFirst && isGraphOpen) setTimeout(drawGraph, 150);
+    };
+
+    const attach = () => {
+        const current = window.socket;
+        if (!current || current === attachedSocket || typeof current.addEventListener !== 'function') return;
+        if (attachedSocket) attachedSocket.removeEventListener('message', onMessage);
+        current.addEventListener('message', onMessage);
+        attachedSocket = current;
+    };
+
+    attach();
+    setInterval(attach, 2000);
+}
+
+observeBandwidth();
+
 /* ==================================================
                     CANVAS INTERACTIONS
    ================================================== */
